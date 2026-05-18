@@ -460,6 +460,50 @@
         HG.App.logoutAdmin();
       });
     }
+
+    // Archive: freeze the room without destroying its data.
+    const archiveBtn = $('btn-archive-game');
+    if (archiveBtn) {
+      archiveBtn.addEventListener('click', async () => {
+        if (typeof provider.archiveGame !== 'function') {
+          showToast('Archive is not supported by this provider.', 'error');
+          return;
+        }
+        if (!confirm('Archive this game? Players will no longer be able to join.')) return;
+        try {
+          await provider.archiveGame(gameId);
+          showToast('Game archived.', 'info');
+        } catch (e) {
+          showToast(e.message || 'Archive failed.', 'error');
+        }
+      });
+    }
+
+    // Delete: requires the host to type the game code before the
+    // permanent wipe. Clears the local admin session on success.
+    const deleteBtn = $('btn-delete-game');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async () => {
+        if (typeof provider.deleteGameCompletely !== 'function') {
+          showToast('Delete is not supported by this provider.', 'error');
+          return;
+        }
+        const code = (gameCode || gameId || '').toString().toUpperCase();
+        const typed = prompt(
+          'This permanently deletes the game and every player, team, word, ' +
+          'round, and event under it. Type the game code (' + code + ') to confirm:'
+        );
+        if (typed == null) return;
+        try {
+          await provider.deleteGameCompletely(gameId, { confirmCode: typed });
+          showToast('Game deleted.', 'info');
+          unmount();
+          HG.App.logoutAdmin();
+        } catch (e) {
+          showToast(e.message || 'Delete failed.', 'error');
+        }
+      });
+    }
   }
 
   global.HatGame.Admin = { mount: mount, unmount: unmount };

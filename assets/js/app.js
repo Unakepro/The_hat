@@ -12,11 +12,67 @@
   const U = HG.Utils;
   const { $, showToast, showScreen, Log } = U;
 
-  // --- DEV-ONLY credentials. See README. ---------------------------
-  const ADMIN_USERNAME = 'admin';
-  const ADMIN_PASSWORD = 'admin';
+  // The hard-coded `admin / admin` credentials are a DEVELOPMENT
+  // fallback used only when:
+  //   - the provider is mock (single-browser demo / Playwright), OR
+  //   - no `HG.adminPasswordHash` is set AND the page is on localhost.
+  // In every other case the app refuses to authenticate locally and
+  // relies on Firebase adminUid ownership instead (the host who
+  // creates the game is the admin, by Firestore rule).
+  const DEV_ADMIN_USERNAME = 'admin';
+  const DEV_ADMIN_PASSWORD = 'admin';
 
   const ADMIN_AUTH_KEY = 'hat_admin_auth';
+
+  function providerName() {
+    try { return HG.getProvider().name; }
+    catch (e) { return null; }
+  }
+  function isLocalDev() {
+    const h = (global.location && global.location.hostname) || '';
+    return h === 'localhost' || h === '127.0.0.1' || h === '';
+  }
+  // Allow the mock/dev fallback path (admin/admin) only in mock mode
+  // or on localhost. On production hosts with Firebase configured we
+  // skip the local password gate entirely — admin authority is the
+  // Firestore adminUid, not a client-side string.
+  function devCredentialsAllowed() {
+    const p = providerName();
+    if (p === 'mock' || p === 'unavailable') return true;
+    if (!HG.adminPasswordHash && isLocalDev()) return true;
+    return false;
+  }
+  function adminGateIsRequired() {
+    // The gate is required iff there is a configured password hash.
+    // Without it, Firebase mode skips the prompt and goes straight
+    // into admin-home (the user must still create a game to become
+    // admin, and Firebase rules pin them to that game).
+    return typeof HG.adminPasswordHash === 'string' && HG.adminPasswordHash.length > 0;
+  }
+  async function sha256Hex(text) {
+    if (!(global.crypto && global.crypto.subtle)) return null;
+    const data = new TextEncoder().encode(text);
+    const buf = await global.crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function verifyAdminCredentials(username, password) {
+    if (adminGateIsRequired()) {
+      const got = await sha256Hex(password);
+      if (!got) {
+        showToast(
+          'Your browser does not support secure password hashing. Use a modern browser.',
+          'error'
+        );
+        return false;
+      }
+      return got === HG.adminPasswordHash;
+    }
+    if (devCredentialsAllowed()) {
+      return username === DEV_ADMIN_USERNAME && password === DEV_ADMIN_PASSWORD;
+    }
+    return false;
+  }
 
   function isAdminAuthed() {
     return sessionStorage.getItem(ADMIN_AUTH_KEY) === '1';
@@ -65,8 +121,29 @@
   // ---- Landing screen handlers -----------------------------------
   function wireLanding() {
     $('landing-host').addEventListener('click', () => {
-      if (isAdminAuthed()) showScreen('screen-admin-home');
-      else showScreen('screen-admin-login');
+      if (isAdminAuthed()) { showScreen('screen-admin-home'); return; }
+      // Firebase production hosts without an explicit password hash
+      // skip the local gate entirely. The user becomes admin only by
+      // creating a game (and the Firestore rules pin the adminUid).
+      if (!adminGateIsRequired() && !devCredentialsAllowed()) {
+        setAdminAuthed(true);
+        showScreen('screen-admin-home');
+        return;
+      }
+      // Surface dev-credentials hint only when the dev fallback is
+      // actually available, so production hosts don't see the
+      // "admin / admin" hint at all.
+      const hint = $('admin-login-hint');
+      if (hint) {
+        hint.innerHTML = devCredentialsAllowed()
+          ? 'Development login: <code>admin / admin</code>. ' +
+            '<em>Replace with a per-deployment password hash via ' +
+            '<code>HatGame.adminPasswordHash</code> before going public.</em>'
+          : '<em>This local login is a UX convenience. Real authority comes from ' +
+            'Firestore security rules — the host who creates a game becomes its ' +
+            'admin via the game\'s <code>adminUid</code> field.</em>';
+      }
+      showScreen('screen-admin-login');
     });
     $('landing-join').addEventListener('click', () => {
       showScreen('screen-player-join');
@@ -81,18 +158,19 @@
 
   // ---- Admin login + home ----------------------------------------
   function wireAdmin() {
-    $('admin-login-form').addEventListener('submit', (ev) => {
+    $('admin-login-form').addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const u = $('admin-username').value.trim();
       const p = $('admin-password').value;
-      // ⚠️ DEV-ONLY: this check is cosmetic; anyone can flip the
-      // session flag in devtools. Real auth must live behind a
-      // server or proper auth provider.
-      if (u === ADMIN_USERNAME && p === ADMIN_PASSWORD) {
+      const ok = await verifyAdminCredentials(u, p);
+      if (ok) {
         setAdminAuthed(true);
         $('admin-password').value = '';
         showScreen('screen-admin-home');
       } else {
+        // The local gate is a UX convenience — Firestore rules are
+        // the real authority. We surface a generic English error so
+        // we don't help an attacker enumerate valid usernames.
         showToast('Invalid username or password.', 'error');
       }
     });

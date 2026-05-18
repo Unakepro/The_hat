@@ -85,6 +85,8 @@
       // existing players cannot have their team/nickname changed.
       // Existing players (matched by uid) can still reconnect.
       registrationLocked: false,
+      // Lifecycle tag: 'active' | 'archived' | 'abandoned' | 'deleting'.
+      status: 'active',
       // Per-round turn durations in seconds. Live settings before
       // each round begins; once a round subdoc is created the value
       // is also mirrored to `round{N}.durationSeconds` for runtime use.
@@ -358,6 +360,11 @@
       const name = U.validateName(nickname, 'Nickname');
       const doc = this._findGameByCode(code);
       if (!doc) throw new GameError('Game not found.');
+      // Lifecycle gate: archived / abandoned / deleting rooms are
+      // closed regardless of phase.
+      if (doc.status && doc.status !== 'active') {
+        throw new GameError('This game is closed.');
+      }
 
       // Reconnect path: if this uid already has a player slot, we
       // allow the rejoin in *any* phase. The nickname is fixed at
@@ -2115,6 +2122,87 @@
         // Otherwise we leave the previous status alone (e.g. "locked"
         // from before Round 1 started).
       });
+    }
+
+    // -- Game lifecycle: archive / delete / abandon / fullNewGame ---
+    // Mirrors FirebaseProvider semantics. `doc.status` defaults to
+    // 'active'; archived/abandoned/deleting rooms refuse new joins.
+    _canDeleteGame(doc) {
+      if (!doc) return false;
+      if (doc.status && doc.status !== 'active') return true;
+      return doc.phase === PHASE.LOBBY ||
+        doc.phase === PHASE.TEAMS_SETUP ||
+        doc.phase === PHASE.GAME_FINISHED;
+    }
+    async archiveGame(gameId) {
+      const doc = this._requireGame(gameId);
+      this._requireAdmin(doc);
+      if (doc.status === 'archived') return;
+      if (doc.status === 'deleting') {
+        throw new GameError('This game is being deleted.');
+      }
+      doc.status = 'archived';
+      doc.archivedAt = U.nowIso();
+      logEvent(doc, 'game_archived', this._uid);
+      saveGame(gameId, doc);
+    }
+    async markGameAbandoned(gameId, opts) {
+      const doc = this._requireGame(gameId);
+      const preStart = doc.phase === PHASE.LOBBY || doc.phase === PHASE.TEAMS_SETUP;
+      if (!preStart) {
+        throw new GameError(
+          'A game that has already started cannot be marked abandoned.'
+        );
+      }
+      const isAdmin = doc.adminUid === this._uid ||
+        !!this._adminGames[doc.gameId];
+      const minIdleMs = (opts && opts.minIdleMs) || 6 * 60 * 60 * 1000;
+      let allowedByTimeout = false;
+      if (doc.updatedAt) {
+        const last = new Date(doc.updatedAt).getTime();
+        if (Number.isFinite(last) && Date.now() - last >= minIdleMs) {
+          allowedByTimeout = true;
+        }
+      }
+      if (!isAdmin && !allowedByTimeout) {
+        throw new GameError('Only the host can mark a game abandoned.');
+      }
+      doc.status = 'abandoned';
+      doc.abandonedAt = U.nowIso();
+      logEvent(doc, 'game_abandoned', this._uid, {
+        reason: isAdmin ? 'host_marked' : 'idle_timeout',
+      });
+      saveGame(gameId, doc);
+    }
+    async deleteGameCompletely(gameId, options) {
+      const doc = this._requireGame(gameId);
+      this._requireAdmin(doc);
+      if (!this._canDeleteGame(doc)) {
+        throw new GameError(
+          'A game in progress cannot be deleted. Finish or abandon it first.'
+        );
+      }
+      const expectedCode = (doc.gameCode || gameId || '').toString().toUpperCase();
+      const supplied = ((options && options.confirmCode) || '').toString().trim().toUpperCase();
+      if (supplied !== expectedCode) {
+        throw new GameError(
+          'Type the game code (' + expectedCode + ') to confirm deletion.'
+        );
+      }
+      // Hard-wipe: remove storage entry and admin-games map.
+      localStorage.removeItem(storageKey(gameId));
+      if (this._adminGames[gameId]) {
+        delete this._adminGames[gameId];
+        this._saveAdminGames();
+      }
+      // Fire a change event so any listener can see the deletion.
+      global.dispatchEvent(new CustomEvent('hatmock:change', {
+        detail: { gameId: gameId, key: storageKey(gameId) },
+      }));
+      return { gameId: gameId, gameCode: expectedCode };
+    }
+    async fullNewGame(opts) {
+      return this.createGame(opts || {});
     }
 
     // -- Export / import (admin) ----------------------------------

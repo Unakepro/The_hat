@@ -32,6 +32,20 @@
     messagingSenderId: 'YOUR_SENDER_ID',
     appId: 'YOUR_APP_ID',
   };
+  // OPTIONAL: per-deployment admin password.
+  //
+  // Set this to the SHA-256 hex digest of the password you want to
+  // require on the "Host a game" sign-in screen. When set, the
+  // hardcoded admin/admin dev fallback is rejected and only the
+  // matching password passes the local gate. When unset, the local
+  // gate is skipped entirely in Firebase mode — admin authority comes
+  // exclusively from the Firestore `adminUid` field on the game doc
+  // (the host who creates the game is that game's admin).
+  //
+  // Generate a hash with:
+  //   echo -n "YourPasswordHere" | shasum -a 256
+  // and paste the hex digest below.
+  global.HatGame.adminPasswordHash = null;
   // Until the user fills in the values above, treat as missing so that
   // the bundled example file doesn't accidentally try to hit Firebase.
   if (global.HatGame.firebaseConfig.apiKey === 'YOUR_API_KEY') {
