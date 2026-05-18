@@ -291,6 +291,7 @@
   // Minimum players-per-team for a valid game. Mirrors MIN_PLAYERS_PER_TEAM
   // in the mock provider — kept in sync via a single constant.
   const MIN_PLAYERS_PER_TEAM = 2;
+  const MIN_TEAMS = 2;
 
   // Fisher–Yates shuffle. Returns a NEW array; the input is left
   // untouched so callers can shuffle a copy without surprise.
@@ -989,6 +990,89 @@
     catch (e) { return null; }
   }
 
+  // Canonical team-membership view. Single source of truth so the
+  // readiness oracle and any other consumer agree on who is on which
+  // team. Ignores removed players; rejects players whose teamId points
+  // to a deleted team.
+  function buildTeamMembership(players, teams) {
+    const safePlayers = (players || []).filter(p => !p.removed);
+    const teamById = new Map((teams || []).map(t => [t.id, t]));
+    const byTeam = new Map();
+    const unassigned = [];
+    const orphans = [];
+    safePlayers.forEach(p => {
+      if (!p.teamId) { unassigned.push(p); return; }
+      if (!teamById.has(p.teamId)) { orphans.push(p); return; }
+      if (!byTeam.has(p.teamId)) byTeam.set(p.teamId, []);
+      byTeam.get(p.teamId).push(p);
+    });
+    return {
+      players: safePlayers,
+      teams: teams || [],
+      byTeam: byTeam,
+      unassigned: unassigned,
+      orphans: orphans,
+    };
+  }
+
+  // Single readiness oracle for Start Word Collection.
+  // Intentionally ignores `connected` / `lastSeenAt` / presence —
+  // browser refresh, tab throttling, phone sleep, and network blips
+  // routinely flip players to "offline" without any actual problem.
+  function getWordCollectionReadiness(game, players, teams) {
+    const g = game || {};
+    const teamList = teams || [];
+    const m = buildTeamMembership(players, teamList);
+    const teamCount = teamList.length;
+    const wpp = g.wordsPerPlayer || 0;
+
+    const hasEnoughTeams = teamCount >= MIN_TEAMS;
+    const eachTeamHasAtLeastTwoPlayers = teamCount > 0 && teamList.every(
+      t => (m.byTeam.get(t.id) || []).length >= MIN_PLAYERS_PER_TEAM
+    );
+    const allPlayersAssigned = m.players.length > 0 &&
+      m.unassigned.length === 0 &&
+      m.orphans.length === 0;
+    const wordsPerPlayerValid = wpp >= 1;
+    const registrationOpen = !g.registrationLocked;
+
+    const checks = {
+      hasEnoughTeams: hasEnoughTeams,
+      eachTeamHasAtLeastTwoPlayers: eachTeamHasAtLeastTwoPlayers,
+      allPlayersAssigned: allPlayersAssigned,
+      wordsPerPlayerValid: wordsPerPlayerValid,
+      registrationOpen: registrationOpen,
+    };
+
+    const invalidTeamNames = teamList
+      .filter(t => (m.byTeam.get(t.id) || []).length < MIN_PLAYERS_PER_TEAM)
+      .map(t => t.name);
+    const unassignedPlayerNames = m.unassigned.map(p => p.name);
+
+    const reasons = [];
+    if (!hasEnoughTeams) reasons.push('At least 2 teams are required.');
+    if (!eachTeamHasAtLeastTwoPlayers) reasons.push('Each team must have at least 2 players.');
+    if (!allPlayersAssigned) {
+      reasons.push(m.orphans.length > 0
+        ? 'Some players are assigned to a missing team.'
+        : 'Every player must be assigned to a team.');
+    }
+    if (!wordsPerPlayerValid) reasons.push('Words per player must be at least 1.');
+    if (!registrationOpen) reasons.push('Registration is already locked.');
+
+    return {
+      canStart: reasons.length === 0,
+      reasons: reasons,
+      checks: checks,
+      details: {
+        teamCount: teamCount,
+        playerCount: m.players.length,
+        unassignedPlayerNames: unassignedPlayerNames,
+        invalidTeamNames: invalidTeamNames,
+      },
+    };
+  }
+
   // Connectivity thresholds for the admin's player status badge.
   // The player heartbeat updates lastSeenAt every ~25 seconds, so
   // the 45s "Online" window allows for one missed beat.
@@ -1044,6 +1128,9 @@
     canEditTeams: canEditTeams,
     defaultTeamName: defaultTeamName,
     MIN_PLAYERS_PER_TEAM: MIN_PLAYERS_PER_TEAM,
+    MIN_TEAMS: MIN_TEAMS,
+    buildTeamMembership: buildTeamMembership,
+    getWordCollectionReadiness: getWordCollectionReadiness,
     validateDurationSeconds: validateDurationSeconds,
     formatTime: formatTime,
     getPendingValidationWordIds: getPendingValidationWordIds,

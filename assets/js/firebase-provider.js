@@ -891,28 +891,20 @@
       await this._requireSignedIn();
       const game = await this._loadGameOrThrow(gameId);
       this._assertAdminCanEditSetup(game);
-      // Mirror the mock provider's readiness gate so a stale UI can't
-      // bypass the requirement client-side.
+      // Mirror the admin UI's readiness gate so a stale UI can't
+      // bypass the requirement client-side. Single canonical helper.
       const [playersSnap, teamsSnap] = await Promise.all([
         this._playersRef(gameId).get(),
         this._teamsRef(gameId).get(),
       ]);
       const players = playersSnap.docs.map(d => Object.assign({ id: d.id }, d.data()));
       const teams = teamsSnap.docs.map(d => Object.assign({ id: d.id }, d.data()));
-      if (teams.length < 2) {
-        throw new GameError('At least 2 teams is required.');
-      }
-      const minPerTeam = U.MIN_PLAYERS_PER_TEAM || 2;
-      if (!teams.every(t => (t.playerIds || []).length >= minPerTeam)) {
-        throw new GameError(
-          'Each team has at least ' + minPerTeam + ' players is required.'
-        );
-      }
-      if (players.length === 0 || !players.every(p => !!p.teamId)) {
-        throw new GameError('Every player is assigned to a team is required.');
-      }
-      if (!game.wordsPerPlayer || game.wordsPerPlayer < 1) {
-        throw new GameError('Words per player is set is required.');
+      const r = U.getWordCollectionReadiness(
+        { wordsPerPlayer: game.wordsPerPlayer, registrationLocked: !!game.registrationLocked },
+        players, teams
+      );
+      if (!r.canStart) {
+        throw new GameError(r.reasons[0]);
       }
       const now = U.nowIso();
       const batch = this._db.batch();

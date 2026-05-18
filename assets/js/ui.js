@@ -178,16 +178,26 @@
       regBadge.textContent = 'OPEN';
       regBadge.classList.remove('locked');
     }
-    renderReadiness(game.readiness, inSetup);
+    // Single canonical readiness oracle — drives both the checklist
+    // and the Start button. Computed client-side so it works against
+    // either provider (the Firebase provider doesn't ship a
+    // server-side `readiness` field on the game doc).
+    const readiness = U.getWordCollectionReadiness(game, state.players || [], state.teams || []);
+    renderReadiness(readiness, inSetup);
+    renderStartReasons(readiness, inSetup);
 
     const startBtn = $('btn-start-word-collection');
-    const ready = !!(game.readiness && game.readiness.ready);
-    startBtn.disabled = !inSetup || !ready;
+    startBtn.disabled = !inSetup || !readiness.canStart;
     startBtn.textContent = inSetup ? 'Start word collection' :
       (phase === PHASE.WORD_COLLECTION ? 'Word collection in progress…' :
        (phase === PHASE.HAT_LOCKED ? 'Hat is locked' : 'Round in progress'));
 
-    $('phase-help').textContent = phaseHelpText(phase, progress, progress.all_submitted);
+    // During setup we already render the precise Start requirements
+    // checklist + per-rule failure reasons, so the vague phase-help
+    // line would be redundant noise.
+    $('phase-help').textContent = inSetup
+      ? ''
+      : phaseHelpText(phase, progress, progress.all_submitted);
     // Show a persistent warning when structure is locked so the host
     // can see why team/player edits are disabled.
     $('lock-warning').textContent = inSetup
@@ -566,19 +576,52 @@
     }
   }
 
+  // Rows are derived from the checks map on the readiness object.
+  // testids match the legacy ids so existing specs continue to work.
+  const READINESS_ROWS = [
+    { id: 'min-teams',    key: 'hasEnoughTeams',               label: 'At least 2 teams' },
+    { id: 'team-size',    key: 'eachTeamHasAtLeastTwoPlayers', label: 'Each team has at least 2 players' },
+    { id: 'all-assigned', key: 'allPlayersAssigned',           label: 'Every player is assigned to a team' },
+    { id: 'wpp',          key: 'wordsPerPlayerValid',          label: 'Words per player is at least 1' },
+    { id: 'registration', key: 'registrationOpen',             label: 'Registration is open' },
+  ];
+
   function renderReadiness(readiness, visible) {
     const root = $('readiness-checklist');
     clear(root);
     if (!readiness || !visible) { root.classList.add('hidden'); return; }
     root.classList.remove('hidden');
-    readiness.items.forEach(item => {
-      const row = el('div', {
-        className: 'readiness-item ' + (item.ok ? 'ok' : 'fail'),
-        testId: 'readiness-' + item.id,
+    root.appendChild(el('h3', {
+      className: 'readiness-title',
+      text: 'Start requirements',
+    }));
+    READINESS_ROWS.forEach(row => {
+      const ok = !!(readiness.checks && readiness.checks[row.key]);
+      const item = el('div', {
+        className: 'readiness-item ' + (ok ? 'ok' : 'fail'),
+        testId: 'readiness-' + row.id,
       });
-      row.appendChild(el('span', { className: 'check', text: item.ok ? '✓' : '○' }));
-      row.appendChild(el('span', { text: item.label }));
-      root.appendChild(row);
+      item.appendChild(el('span', { className: 'check', text: ok ? '✓' : '✗' }));
+      item.appendChild(el('span', { text: row.label }));
+      root.appendChild(item);
+    });
+  }
+
+  function renderStartReasons(readiness, visible) {
+    const root = $('start-reasons');
+    if (!root) return;
+    clear(root);
+    if (!readiness || !visible) { root.classList.add('hidden'); return; }
+    root.classList.remove('hidden');
+    if (readiness.canStart) {
+      root.appendChild(el('span', {
+        className: 'start-reasons-ok',
+        text: 'Ready to start word collection.',
+      }));
+      return;
+    }
+    readiness.reasons.forEach(text => {
+      root.appendChild(el('div', { className: 'start-reasons-fail', text: text }));
     });
   }
 
@@ -601,14 +644,20 @@
         testId: 'player-name',
       }));
       // Connected status badge — Online / Recently active / Offline.
-      // Read from `lastSeenAt`, classified by the helper in utils.js.
-      const presence = U.classifyPresence(p.lastSeenAt);
-      main.appendChild(el('span', {
-        className: 'presence-badge presence-' + presence,
-        text: presence === 'online' ? 'Online' :
-              presence === 'recent' ? 'Recently active' : 'Offline',
-        testId: 'player-presence-' + presence,
-      }));
+      // Hidden in the normal admin UI because online/offline status
+      // is NOT part of the Start Word Collection gate; showing it
+      // misled hosts into thinking offline players blocked the game.
+      // Heartbeat tracking (`lastSeenAt`, `connected`) is preserved
+      // internally and surfaced only when ?debug=1.
+      if (U.getQuery().debug === '1') {
+        const presence = U.classifyPresence(p.lastSeenAt);
+        main.appendChild(el('span', {
+          className: 'presence-badge presence-' + presence,
+          text: presence === 'online' ? 'Online' :
+                presence === 'recent' ? 'Recently active' : 'Offline',
+          testId: 'player-presence-' + presence,
+        }));
+      }
       const required = (state.game && state.game.wordsPerPlayer) || 0;
       const chip = el('span', {
         className: 'player-progress-chip' + ((p.wordCount || 0) >= required ? ' done' : ''),

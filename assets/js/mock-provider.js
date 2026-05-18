@@ -141,30 +141,16 @@
     if (doc.events.length > 200) doc.events.splice(0, doc.events.length - 200);
   }
 
-  // Compute a structured "ready to start word collection" report.
-  // The admin UI uses this to render a checklist and to gate the
-  // Start Word Collection button.
+  // Thin wrapper around the canonical readiness oracle in utils.js.
+  // Used only to gate `startWordCollection` server-side (the admin UI
+  // computes readiness directly from state and no longer reads this
+  // off the listener payload).
   function readinessReport(doc) {
-    const teams = doc.teams || [];
-    const players = doc.players || [];
-    const wpp = doc.wordsPerPlayer || 0;
-    const enoughTeams = teams.length >= MIN_TEAMS;
-    const teamsBigEnough = teams.length > 0 &&
-      teams.every(t => (t.playerIds || []).length >= MIN_PLAYERS_PER_TEAM);
-    const allAssigned = players.length > 0 &&
-      players.every(p => !!p.teamId);
-    const wppValid = wpp >= 1;
-    const items = [
-      { id: 'min-teams', ok: enoughTeams,
-        label: 'At least ' + MIN_TEAMS + ' teams' },
-      { id: 'team-size', ok: teamsBigEnough,
-        label: 'Each team has at least ' + MIN_PLAYERS_PER_TEAM + ' players' },
-      { id: 'all-assigned', ok: allAssigned,
-        label: 'Every player is assigned to a team' },
-      { id: 'wpp', ok: wppValid,
-        label: 'Words per player is set' },
-    ];
-    return { items: items, ready: items.every(i => i.ok) };
+    return U.getWordCollectionReadiness(
+      { wordsPerPlayer: doc.wordsPerPlayer, registrationLocked: !!doc.registrationLocked },
+      doc.players || [],
+      doc.teams || []
+    );
   }
 
   // Generic per-round subdoc factory. Same shape applies to Round 1,
@@ -765,11 +751,10 @@
       // but we validate here too so a stale UI / direct API call
       // can't bypass it.
       const r = readinessReport(doc);
-      if (!r.ready) {
-        const failing = r.items.filter(i => !i.ok)[0];
+      if (!r.canStart) {
         // Surface the first failing requirement so the toast is
         // specific.
-        throw new GameError(failing.label + ' is required.');
+        throw new GameError(r.reasons[0]);
       }
       doc.phase = PHASE.WORD_COLLECTION;
       doc.registrationLocked = true;
