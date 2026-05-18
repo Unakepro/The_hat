@@ -1,0 +1,797 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>The Hat Game</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+
+  <!-- Single shared toast for inline errors / info. -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <!-- Debug panel (hidden unless ?debug=1). -->
+  <aside id="debug-panel" class="debug-panel hidden" data-testid="debug-panel"></aside>
+
+  <!--
+    All screens are siblings, hidden via .hidden. ui.js / app.js
+    toggle which one is visible. Keeping every screen in the same
+    document keeps the static deploy story simple.
+  -->
+
+  <!-- =====================================================
+       Landing — pick a mode.
+       ===================================================== -->
+  <section id="screen-landing" class="screen screen-landing hidden">
+    <main class="card card--landing">
+      <!-- Hero illustration: just the hat, centered. -->
+      <div class="hero-illustration" aria-hidden="true">
+        <div class="hero-hat">
+          <div class="hat-brim"></div>
+          <div class="hat-top"></div>
+          <div class="hat-band"></div>
+        </div>
+      </div>
+      <h1>The Hat Game</h1>
+      <p class="lead">A cozy party word game. Host a session, fill the hat, then play three rounds with your friends.</p>
+
+      <div class="landing-actions">
+        <button class="btn btn-primary btn-large" type="button"
+                data-testid="landing-host-button" id="landing-host">
+          🎩 Host a game
+        </button>
+        <button class="btn btn-secondary btn-large" type="button"
+                data-testid="landing-join-button" id="landing-join">
+          🪄 Join a game
+        </button>
+      </div>
+
+      <div class="muted small" id="provider-banner"></div>
+    </main>
+  </section>
+
+  <!-- =====================================================
+       Admin login (host)
+       ===================================================== -->
+  <section id="screen-admin-login" class="screen screen-admin-login hidden">
+    <main class="card card--narrow">
+      <h1>Host login</h1>
+      <p class="lead">Sign in to create or manage a game.</p>
+
+      <form id="admin-login-form" class="form" autocomplete="off"
+            data-testid="admin-login-form">
+        <label for="admin-username">Username</label>
+        <input id="admin-username" name="username" type="text" required
+               data-testid="admin-username" autocomplete="username" />
+
+        <label for="admin-password">Password</label>
+        <input id="admin-password" name="password" type="password" required
+               data-testid="admin-password" autocomplete="current-password" />
+
+        <button type="submit" class="btn btn-primary"
+                data-testid="admin-login-button">Sign in</button>
+      </form>
+
+      <div class="muted small">
+        Demo credentials: <code>admin / admin</code><br/>
+        <em>This login is for the local/GitHub Pages MVP only — it is not secure.</em>
+      </div>
+      <div class="muted small"><a href="#" id="admin-back-landing">← back to start</a></div>
+    </main>
+  </section>
+
+  <!-- =====================================================
+       Admin home: create / resume a game
+       ===================================================== -->
+  <section id="screen-admin-home" class="screen screen-admin-home hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">🎩 Hat Game · Host</div>
+      </div>
+      <div class="topbar-right">
+        <button class="btn btn-ghost" type="button" id="admin-home-logout">Logout</button>
+      </div>
+    </header>
+    <main class="centered-main">
+      <div class="card card--narrow">
+        <h2>Start a new game</h2>
+        <p class="muted small">Generates a short code players can use to join from their phones.</p>
+        <div class="control-row">
+          <label for="initial-words-per-player">Words per player</label>
+          <input id="initial-words-per-player" type="number" min="1" max="20" value="5"
+                 data-testid="words-per-player-input" />
+        </div>
+        <button class="btn btn-primary" type="button"
+                id="btn-create-game" data-testid="create-game-button">
+          Create game
+        </button>
+      </div>
+    </main>
+  </section>
+
+  <!-- =====================================================
+       Admin dashboard: full game state for the host
+       ===================================================== -->
+  <section id="screen-admin" class="screen screen-admin hidden"
+           data-testid="host-control-screen">
+    <header class="topbar" data-testid="game-status-header">
+      <div class="topbar-left">
+        <div class="brand">🎩 Hat Game · Host</div>
+        <span class="phase-pill" id="phase-pill" data-testid="phase-pill">LOBBY</span>
+        <span class="code-badge" id="code-badge" data-testid="game-code"></span>
+      </div>
+      <div class="topbar-right">
+        <button class="btn btn-ghost" type="button" id="btn-copy-invite"
+                data-testid="copy-invite-button">Copy invite link</button>
+        <button class="btn btn-ghost" type="button" id="btn-export-state"
+                data-testid="export-state-button">Export JSON</button>
+        <label for="file-import-state" class="btn btn-ghost"
+               data-testid="import-state-label">Import JSON</label>
+        <input id="file-import-state" type="file" accept="application/json,.json" hidden
+               data-testid="import-state-input" />
+        <button class="btn btn-ghost btn-danger" type="button" id="btn-reset-game"
+                data-testid="reset-game-button">Reset</button>
+        <button class="btn btn-ghost" type="button" id="btn-logout"
+                data-testid="logout-button">Logout</button>
+      </div>
+    </header>
+
+    <main class="admin-main">
+
+      <!-- ==== Hat stage with progress ==== -->
+      <section class="hat-stage">
+        <div class="hat-illustration" aria-hidden="true">
+          <div class="hat"><div class="hat-brim"></div><div class="hat-top"></div><div class="hat-band"></div></div>
+        </div>
+        <div class="hat-status">
+          <div class="progress-line">
+            Hat progress:
+            <strong id="hat-progress-text" data-testid="global-progress">0 / 0 words</strong>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="hat-progress-fill"></div></div>
+          <div class="phase-message" id="phase-message"></div>
+          <div class="phase-actions" id="phase-actions"></div>
+        </div>
+        <div class="muted small hat-privacy-note">
+          Word texts are hidden during collection. You'll see them after the hat is locked.
+        </div>
+      </section>
+
+      <div class="admin-grid">
+
+        <!-- ==== Game controls ==== -->
+        <section class="card section-controls" data-testid="section-controls">
+          <h2>Game controls</h2>
+          <div class="control-row">
+            <label for="words-per-player">Words per player</label>
+            <div class="words-per-player-row">
+              <input id="words-per-player" type="number" min="1" max="20" value="5"
+                     data-testid="words-per-player-input-active" />
+              <button class="btn btn-secondary" type="button" id="btn-save-words-per-player"
+                      data-testid="save-words-per-player-button">Save</button>
+            </div>
+          </div>
+
+          <!-- Registration status badge — flips to LOCKED once word
+               collection starts. -->
+          <div class="control-row">
+            <span class="muted small">Registration:&nbsp;</span>
+            <span class="status-badge" id="registration-badge"
+                  data-testid="registration-badge">OPEN</span>
+          </div>
+
+          <!-- Ready-to-start checklist. Populated by ui.js from the
+               readiness report on the game doc. -->
+          <div class="readiness" id="readiness-checklist"
+               data-testid="readiness-checklist"></div>
+
+          <div class="control-row">
+            <button class="btn btn-primary" type="button" id="btn-start-word-collection"
+                    data-testid="start-word-collection-button">Start word collection</button>
+          </div>
+          <div class="phase-help muted small" id="phase-help">
+            Wait for players to join, then start word collection.
+          </div>
+          <div class="muted small" id="lock-warning"></div>
+        </section>
+
+        <!-- ==== Players ==== -->
+        <section class="card section-players" data-testid="section-players">
+          <h2>Players</h2>
+          <ul class="player-list" id="player-list" data-testid="player-list"></ul>
+          <div class="muted small" id="players-empty">Waiting for players to join…</div>
+        </section>
+
+        <!-- ==== Teams ==== -->
+        <section class="card section-teams" data-testid="section-teams">
+          <h2>Teams</h2>
+          <form id="add-team-form" class="add-row" autocomplete="off">
+            <input id="new-team-name" type="text" maxlength="30" placeholder="Add a team…"
+                   data-testid="create-team-input" />
+            <button class="btn btn-primary" type="submit"
+                    data-testid="create-team-button">Add team</button>
+          </form>
+
+          <!-- ==== Team Randomizer ==== -->
+          <!--
+            Distributes the current player roster evenly across teams.
+            Two modes: pick a number of teams, or pick a target team
+            size; the helpers in utils.js compute the actual sizes.
+            The whole panel disables itself once registration is
+            locked (provider also enforces the gate).
+          -->
+          <div class="team-randomizer" id="team-randomizer"
+               data-testid="team-randomizer">
+            <h3 class="team-randomizer-title">Team Randomizer</h3>
+            <div class="muted small">Distribute players into balanced teams.</div>
+            <div class="control-row">
+              <label class="team-randomizer-mode-label">
+                <input type="radio" name="randomizer-mode" value="teamCount"
+                       data-testid="randomizer-mode-team-count" checked />
+                By number of teams
+              </label>
+              <label class="team-randomizer-mode-label">
+                <input type="radio" name="randomizer-mode" value="targetSize"
+                       data-testid="randomizer-mode-target-size" />
+                By target team size
+              </label>
+            </div>
+            <div class="control-row randomizer-input-row" id="randomizer-team-count-row">
+              <label for="randomizer-team-count-input">Number of teams</label>
+              <input id="randomizer-team-count-input" type="number" min="2"
+                     value="2" data-testid="randomizer-team-count-input" />
+            </div>
+            <div class="control-row randomizer-input-row hidden" id="randomizer-target-size-row">
+              <label for="randomizer-target-size-input">Target team size</label>
+              <input id="randomizer-target-size-input" type="number" min="2"
+                     value="3" data-testid="randomizer-target-size-input" />
+            </div>
+            <div class="muted small randomizer-preview" id="randomizer-preview"
+                 data-testid="randomizer-preview"></div>
+            <button class="btn btn-primary" type="button"
+                    id="btn-randomize-teams"
+                    data-testid="randomize-teams-button">Randomize Teams</button>
+          </div>
+
+          <ul class="team-list" id="team-list" data-testid="team-list"></ul>
+          <div class="muted small" id="teams-empty">No teams yet.</div>
+        </section>
+
+        <!-- ==== Per-player progress (no word text!) ==== -->
+        <section class="card section-progress" data-testid="section-progress">
+          <h2>Submission progress</h2>
+          <div class="muted small">Word texts are hidden from the host until the hat is locked.</div>
+          <ul class="progress-list" id="progress-list" data-testid="progress-list"></ul>
+        </section>
+
+        <!-- ==== Word Review panel ==== -->
+        <!--
+          Host-only. Visible during WORD_REVIEW. The list is rendered
+          by ui.js#renderWordReviewPanel from `state.hat`
+          (admin-only listener). Each card carries the spec testids
+          plus an `editing` mode toggled via the Edit/Save buttons.
+        -->
+        <section class="card section-word-review hidden" id="section-word-review"
+                 data-testid="section-word-review">
+          <div data-testid="word-review-panel">
+            <h2>Word Review</h2>
+            <div class="muted small">
+              Review, edit, remove, and approve submitted words before
+              locking the hat.
+            </div>
+            <div class="word-review-summary muted small"
+                 id="word-review-summary"
+                 data-testid="word-review-summary"></div>
+            <div class="word-review-actions">
+              <button class="btn btn-secondary" type="button"
+                      id="btn-approve-all-words"
+                      data-testid="approve-all-words-button">Approve all</button>
+            </div>
+            <ul class="word-review-list" id="word-review-list"
+                data-testid="word-review-list"></ul>
+            <div class="muted small hidden" id="word-review-empty">
+              No words submitted yet.
+            </div>
+          </div>
+        </section>
+
+        <!-- ==== Host Hat Contents: host-only remaining-deck view ==== -->
+        <!--
+          Title + subtitle are fixed. The count line and chip list are
+          rebuilt every render from snapshot.hostHatContents (see
+          ui.js#renderAdminHatContents). Pre-round phases show the full
+          locked hat; during a round the list shrinks to the
+          remainingWordIds of the current round and grows back at the
+          next round (hat resets every round).
+        -->
+        <section class="card section-hat-contents hidden" id="section-hat-contents"
+                 data-testid="section-hat-contents">
+          <div data-testid="host-hat-contents">
+            <h2>Hat Contents</h2>
+            <div class="muted small" data-testid="host-hat-subtitle">
+              Remaining words in the current round.
+            </div>
+            <div class="muted small" id="host-hat-round-label"
+                 data-testid="host-hat-round-label"></div>
+            <div class="host-hat-count" id="host-hat-remaining-count"
+                 data-testid="host-hat-remaining-count">—</div>
+            <ul class="word-list" id="hat-contents-list"
+                data-testid="hat-contents-list"></ul>
+            <div class="muted small hidden" id="host-hat-empty"
+                 data-testid="host-hat-empty">No words remaining in this round.</div>
+          </div>
+        </section>
+
+        <!-- ==== Round settings panel (per-round timer durations) ==== -->
+        <!--
+          Shown from HAT_LOCKED onward so the host can configure each
+          round's turn duration before play starts. Individual rounds'
+          inputs are locked once that round has begun. Tests reference
+          the legacy `round-duration-input` testid (Round 1's input).
+        -->
+        <section class="card section-round-settings hidden" id="section-round-settings"
+                 data-testid="round-settings-panel">
+          <h2>Round timer settings</h2>
+          <div class="muted small">
+            Each round has its own turn duration. Defaults: Round 1
+            and Round 2 are 60 seconds; Round 3 is 30 seconds.
+          </div>
+
+          <div class="control-row round-duration-row" id="round-1-duration-row">
+            <label for="round1-duration-input">Round 1 — Normal Explanation (seconds)</label>
+            <div class="words-per-player-row">
+              <input id="round1-duration-input" type="number"
+                     min="10" max="300" step="5" value="60"
+                     data-testid="round1-duration-input" />
+              <button class="btn btn-secondary" type="button"
+                      id="btn-save-round1-duration"
+                      data-testid="save-round1-duration-button">Save</button>
+            </div>
+          </div>
+
+          <div class="control-row round-duration-row" id="round-2-duration-row">
+            <label for="round2-duration-input">Round 2 — Charades (seconds)</label>
+            <div class="words-per-player-row">
+              <input id="round2-duration-input" type="number"
+                     min="10" max="300" step="5" value="60"
+                     data-testid="round2-duration-input" />
+              <button class="btn btn-secondary" type="button"
+                      id="btn-save-round2-duration"
+                      data-testid="save-round2-duration-button">Save</button>
+            </div>
+          </div>
+
+          <div class="control-row round-duration-row" id="round-3-duration-row">
+            <label for="round3-duration-input">Round 3 — One-Word Association (seconds)</label>
+            <div class="words-per-player-row">
+              <input id="round3-duration-input" type="number"
+                     min="10" max="300" step="5" value="30"
+                     data-testid="round3-duration-input" />
+              <button class="btn btn-secondary" type="button"
+                      id="btn-save-round3-duration"
+                      data-testid="save-round3-duration-button">Save</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==== Active round admin panel ==== -->
+        <!--
+          Rendered for the currently active round (1, 2, or 3). The
+          heading text and rule text are filled in dynamically from
+          U.ROUND_CONFIG so the same DOM serves all three rounds.
+          Section id is `section-round1-admin` purely for historical
+          continuity with existing CSS / tests.
+        -->
+        <section class="card section-round1 hidden" id="section-round1-admin"
+                 data-testid="section-round1-admin">
+          <div data-testid="active-turn-panel">
+            <h2 id="round-admin-title" data-testid="current-round-title">Round 1</h2>
+            <div class="round-rule muted small" id="round-admin-rule"
+                 data-testid="current-round-rule"></div>
+
+            <div class="round1-meta" id="round1-admin-meta"></div>
+
+            <!-- Live turn status pill: waiting_to_start / active / etc. -->
+            <div class="round1-status-row">
+              <span class="muted small">Turn status:&nbsp;</span>
+              <span class="status-badge" id="turn-status-badge"
+                    data-testid="turn-status">—</span>
+              <!--
+                Note: the canonical `data-testid="round-timer"` lives
+                on the player-facing big countdown. This admin-side
+                compact label uses its own testid so tests don't
+                collide when both screens coexist in the same DOM
+                tree (they're sibling sections, only one visible).
+              -->
+              <span class="round-timer-admin" id="round-timer-admin"
+                    data-testid="admin-round-timer">—</span>
+            </div>
+          </div>
+
+          <!-- Per-round scoreboard: total + per-round subtotals. -->
+          <div class="round-scoreboard" id="round-scoreboard"
+               data-testid="host-scoreboard"></div>
+
+          <!--
+            Round controls (Start next turn / End turn / etc.) are
+            rendered into here by ui.js#renderRound1Admin. The
+            data-testid lets host-control-screen tests assert that
+            the controls block exists for the current phase.
+          -->
+          <div class="round1-admin-actions" id="round1-admin-actions"
+               data-testid="round-controls"></div>
+        </section>
+
+        <!-- ==== Final results (GAME_FINISHED) ==== -->
+        <!--
+          Two testids on the wrapper for back-compat: `final-results`
+          (used by earlier tests) and `final-results-screen` (the
+          spec's name). Either selector resolves to this section.
+        -->
+        <section class="card section-final-results hidden" id="section-final-results"
+                 data-testid="final-results">
+          <div data-testid="final-results-screen" style="display: contents">
+            <h2>Game Finished</h2>
+            <div class="muted small">All three rounds complete. Total points across all rounds:</div>
+            <div class="final-winner" id="final-winner"
+                 data-testid="final-winner"></div>
+            <span data-testid="winner-name" id="winner-name"
+                  style="display: none"></span>
+            <table class="final-score-table" id="final-score-table"
+                   data-testid="final-score-table">
+              <thead>
+                <tr>
+                  <th>Team</th>
+                  <th>Round 1</th>
+                  <th>Round 2</th>
+                  <th>Round 3</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="final-score-tbody"></tbody>
+            </table>
+            <!-- Legacy list also rendered for older tests that look
+                 for `total-scoreboard`. The new table above is the
+                 canonical surface. -->
+            <ul class="final-results-list" id="final-results-list"
+                data-testid="total-scoreboard"></ul>
+            <div class="final-actions">
+              <button class="btn btn-primary" type="button"
+                      id="btn-new-game" data-testid="new-game-button">
+                New game
+              </button>
+              <button class="btn btn-primary" type="button"
+                      id="btn-new-game-same-players"
+                      data-testid="new-game-same-players-button">
+                New Game with Same Players
+              </button>
+              <button class="btn btn-secondary" type="button"
+                      id="btn-export-final-results"
+                      data-testid="export-final-results-button">
+                Export final results JSON
+              </button>
+              <button class="btn btn-ghost" type="button"
+                      id="btn-leave-game" data-testid="leave-game-button">
+                Leave game
+              </button>
+            </div>
+
+            <!-- Rematch options modal. Hidden by default; opens when
+                 the host clicks "New Game with Same Players". -->
+            <div class="rematch-modal hidden" id="rematch-options-modal"
+                 data-testid="rematch-options-modal" role="dialog">
+              <div class="rematch-modal-card">
+                <h3>Start New Game</h3>
+                <p class="muted small">
+                  Keep the same players and teams. Choose how to handle team
+                  assignments for the new game.
+                </p>
+                <div class="rematch-option">
+                  <label>
+                    <input type="radio" name="rematch-mode" value="keep" checked
+                           data-testid="keep-current-teams-option" />
+                    Keep current teams
+                  </label>
+                </div>
+                <div class="rematch-option">
+                  <label>
+                    <input type="radio" name="rematch-mode" value="reshuffle"
+                           data-testid="reshuffle-existing-teams-option" />
+                    Reshuffle players between existing teams
+                  </label>
+                </div>
+                <div class="rematch-actions">
+                  <button class="btn btn-primary" type="button"
+                          id="btn-confirm-rematch"
+                          data-testid="confirm-rematch-button">Start New Game</button>
+                  <button class="btn btn-ghost" type="button"
+                          id="btn-cancel-rematch"
+                          data-testid="cancel-rematch-button">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==== Validation panel ==== -->
+        <!--
+          Host-only. Shows guessed words from the current turn that
+          need confirm/reject. Separate from Hat Contents above:
+            Hat Contents     = remaining words in current round
+            Validation Panel = guessed words awaiting confirm/reject
+          The wrapper carries both the legacy and the new testid so
+          older tests keep working while new tests can use the
+          spec's name.
+        -->
+        <section class="card section-validation hidden" id="section-round1-validation"
+                 data-testid="turn-validation-panel">
+          <div data-testid="validation-panel">
+            <h2>Validate Guessed Words
+              <span class="badge" data-testid="pending-validation-count" id="pending-validation-count">0</span>
+            </h2>
+            <div class="muted small">Confirm or reject each word the explainer marked guessed.</div>
+            <div class="muted small hidden" id="validation-empty-state"
+                 data-testid="validation-empty-state">No words pending validation.</div>
+            <ul class="validation-list" id="validation-list"></ul>
+            <button class="btn btn-primary" type="button" id="btn-finish-validation"
+                    data-testid="finish-validation-button">Finish validation</button>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </section>
+
+  <!-- =====================================================
+       Player join: enter code + nickname
+       ===================================================== -->
+  <section id="screen-player-join" class="screen screen-player-join hidden">
+    <main class="card card--narrow">
+      <h1>Join a game</h1>
+      <p class="lead">Enter the code your host gave you and pick a nickname.</p>
+
+      <form id="join-game-form" class="form" autocomplete="off">
+        <label for="join-game-code">Game code</label>
+        <!-- No HTML5 `required` here: we want our JS to surface a
+             friendly toast for empty fields. The toast is also what
+             tests assert on. -->
+        <input id="join-game-code" type="text" maxlength="8" placeholder="ABC123"
+               data-testid="join-game-code-input" autocapitalize="characters" />
+
+        <label for="nickname">Nickname</label>
+        <input id="nickname" type="text" maxlength="30"
+               data-testid="nickname-input" />
+
+        <button type="submit" class="btn btn-primary"
+                data-testid="join-game-button">Join</button>
+      </form>
+
+      <div class="muted small"><a href="#" id="player-back-landing">← back to start</a></div>
+    </main>
+  </section>
+
+  <!-- =====================================================
+       Player dashboard: lobby / word entry / locked / round1
+       ===================================================== -->
+  <section id="screen-player" class="screen screen-player hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">🎩 Hat Game</div>
+        <span class="phase-pill" id="player-phase-pill" data-testid="player-phase-pill">LOBBY</span>
+      </div>
+      <div class="topbar-right">
+        <div class="me-chip">
+          <span class="me-name" id="me-name" data-testid="me-name">…</span>
+          <span class="me-team" id="me-team" data-testid="me-team"></span>
+        </div>
+      </div>
+    </header>
+
+    <main class="player-main">
+      <section class="hat-stage">
+        <div class="hat-illustration" aria-hidden="true">
+          <div class="hat"><div class="hat-brim"></div><div class="hat-top"></div><div class="hat-band"></div></div>
+        </div>
+        <div class="hat-status">
+          <div class="progress-line">
+            Hat progress:
+            <strong id="player-hat-progress-text" data-testid="global-progress-player">0 / 0 words</strong>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" id="player-hat-progress-fill"></div></div>
+          <div class="phase-message" id="player-phase-message" data-testid="player-phase-message"></div>
+        </div>
+      </section>
+
+      <!-- ==== Words Need Revision (only during WORD_REVIEW, only if
+           the player has at least one word marked needs_revision) ==== -->
+      <section class="card player-revision-panel hidden" id="section-player-revision"
+               data-testid="player-revision-panel">
+        <h2>Words Need Revision</h2>
+        <div class="muted small">The host asked you to edit these words.</div>
+        <ul class="player-revision-list" id="player-revision-list"></ul>
+      </section>
+
+      <!-- ==== Word entry (only during WORD_COLLECTION) ==== -->
+      <section class="card my-words-card hidden" id="my-words-card" data-testid="my-words-card">
+        <div class="my-words-header">
+          <h2>Your words</h2>
+          <div class="muted small">
+            <span id="my-progress-text" data-testid="player-progress">0 / 0</span> submitted
+          </div>
+        </div>
+        <form id="add-word-form" class="add-word-form" autocomplete="off">
+          <input id="word-input" type="text" maxlength="40" placeholder="Type a word…"
+                 data-testid="word-input" />
+          <button type="submit" class="btn btn-primary"
+                  data-testid="submit-word-button">Add</button>
+        </form>
+        <ul class="word-list" id="my-word-list" data-testid="my-word-list"></ul>
+      </section>
+
+      <!-- ==== Round active view: differs for explainer vs others ==== -->
+      <!--
+        Used for all 3 rounds. ui.js fills the round-info header
+        (name + rule) from U.ROUND_CONFIG based on the current round.
+        The Wrong button is rendered only when the current round's
+        config has hasWrong=true (Round 3 only).
+      -->
+      <section class="card round1-card hidden" id="round1-card" data-testid="round1-card">
+        <div class="round-info">
+          <div class="round-info-title" id="player-round-title"
+               data-testid="current-round-title">Round 1</div>
+          <div class="round-info-rule muted small" id="player-round-rule"
+               data-testid="current-round-rule"></div>
+        </div>
+
+        <div id="round1-meta-player"></div>
+
+        <!-- Shared big countdown — visible during ACTIVE; shows the
+             configured duration during WAITING_TO_START. -->
+        <div class="round-timer-display" id="round-timer-player"
+             data-testid="round-timer">00:00</div>
+
+        <!--
+          Explainer view: differs based on r.status.
+          - WAITING_TO_START: word visible, "Ready?" + Start button.
+          - ACTIVE          : word visible + Guessed (+ Wrong in R3).
+          - ended (transient): "Time is over" message, word hidden.
+        -->
+        <!--
+          Explainer view. The active word is rendered only when the
+          turn is ACTIVE — during WAITING_TO_START we show the pre-
+          start message instead so the explainer cannot peek at the
+          word before the timer starts.
+        -->
+        <div id="round1-explainer-view" class="hidden mobile-explainer-screen"
+             data-testid="mobile-explainer-screen">
+          <!-- Pre-start screen: visible during WAITING_TO_START.
+               No word, just an explanation that the word will appear
+               on Start. -->
+          <div class="pre-start-screen hidden" id="pre-start-reveal-message"
+               data-testid="pre-start-screen">
+            <div class="muted small" data-testid="reveal-after-start-message">
+              Press Start to reveal your first word.
+            </div>
+          </div>
+          <!-- Active word card: visible during ACTIVE. The outer
+               wrapper carries the spec's `mobile-active-word-card`
+               testid; the inner div keeps `active-word-card` so
+               existing tests still resolve. -->
+          <div class="active-word-box hidden" id="active-word-card"
+               data-testid="active-word-card">
+            <div data-testid="mobile-active-word-card">
+              <div class="active-word-label muted small" id="active-word-label">Explain this word:</div>
+              <div class="active-word-text mobile-active-word"
+                   id="active-word-text"
+                   data-testid="active-word"></div>
+            </div>
+          </div>
+          <!--
+            Action buttons. Each is wrapped in a `mobile-*-button`
+            testid so layout / size assertions can target the
+            wrapper, while click handlers + existing tests continue
+            to target the button by its primary testid (turn-start-
+            button / guessed-button / wrong-button).
+          -->
+          <div class="explainer-actions">
+            <div data-testid="mobile-start-button" class="mobile-action-button-wrap">
+              <button class="btn btn-primary btn-large mobile-action-button" type="button"
+                      id="btn-turn-start"
+                      data-testid="turn-start-button">Start</button>
+            </div>
+            <div data-testid="mobile-guessed-button" class="mobile-action-button-wrap">
+              <button class="btn btn-primary btn-large mobile-action-button" type="button"
+                      id="btn-guessed"
+                      data-testid="guessed-button">Guessed!</button>
+            </div>
+            <!-- Round 3 only: ui.js hides this button outside of Round 3. -->
+            <div data-testid="mobile-wrong-button" class="mobile-action-button-wrap">
+              <button class="btn btn-ghost btn-danger btn-large mobile-action-button hidden"
+                      type="button" id="btn-wrong"
+                      data-testid="wrong-button">Wrong</button>
+            </div>
+          </div>
+          <div class="muted small time-over hidden" id="time-over-explainer"
+               data-testid="time-over-message">Time is over</div>
+        </div>
+
+        <!--
+          Watcher view (teammates + other team players + the explainer
+          during WAITING_TO_START): never sees the active word, never
+          sees guessed/remaining/validation word text. Just status
+          messages. The status spans are exact-text matches expected
+          by the role-boundaries tests, so do not paraphrase here
+          without updating the tests.
+        -->
+        <div id="round1-watcher-view" class="hidden">
+          <div class="muted small hidden" id="player-status-guessing"
+               data-testid="player-status-guessing">
+            Guess by voice. The host will validate guessed words.
+          </div>
+          <div class="muted small hidden" id="player-status-validating"
+               data-testid="player-status-validating">
+            Waiting for the host to validate the turn.
+          </div>
+          <div class="muted small" id="player-status-hidden"
+               data-testid="player-status-hidden">
+            Words are hidden from players.
+          </div>
+          <div class="muted small hidden" id="waiting-to-start-message"
+               data-testid="waiting-to-start-message">
+            Waiting for the explainer to start.
+          </div>
+          <div class="muted small time-over hidden" id="time-over-watcher"
+               data-testid="time-over-message-watcher">Time is over</div>
+        </div>
+      </section>
+
+      <!-- ==== Player-side final results ==== -->
+      <section class="card section-final-results-player hidden"
+               id="section-final-results-player">
+        <h2>Game Finished</h2>
+        <div class="final-winner" id="final-winner-player"></div>
+        <ul class="final-results-list" id="final-results-list-player"></ul>
+        <div class="final-actions">
+          <button class="btn btn-ghost" type="button"
+                  id="btn-leave-game-player"
+                  data-testid="leave-game-button-player">
+            Leave game
+          </button>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <!-- =====================================================
+       Scripts: load Firebase compat SDKs from CDN, then our app.
+       Order matters: utils → providers → controllers → boot.
+       The Firebase SDK is loaded conditionally — if you're in mock
+       mode it doesn't need to be available, but loading it is cheap
+       and avoids races when switching modes.
+       ===================================================== -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"
+          onerror="console.warn('[AliasGame][Firebase] SDK unavailable — falling back to mock provider')"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"
+          onerror=""></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"
+          onerror=""></script>
+
+  <script src="assets/js/utils.js"></script>
+  <!--
+    Load the example config first; if you've created firebase-config.js
+    locally with real keys, it overrides the example (also loaded with
+    onerror to swallow 404 on a fresh clone).
+  -->
+  <script src="assets/js/firebase-config.example.js"></script>
+  <script src="assets/js/firebase-config.js" onerror=""></script>
+  <script src="assets/js/mock-provider.js"></script>
+  <script src="assets/js/firebase-provider.js"></script>
+  <script src="assets/js/data-provider.js"></script>
+  <script src="assets/js/ui.js"></script>
+  <script src="assets/js/admin.js"></script>
+  <script src="assets/js/player.js"></script>
+  <script src="assets/js/debug-panel.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

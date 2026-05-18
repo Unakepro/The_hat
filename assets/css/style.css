@@ -1,0 +1,1524 @@
+/* =================================================================
+   The Hat Game — cozy party-game styles.
+   Palette is warm cream + paper + ink with a single accent red.
+   ================================================================= */
+
+:root {
+  --bg: #f6efe1;
+  --bg-2: #efe4cc;
+  --card: #fffbf3;
+  --ink: #2d2118;
+  --ink-soft: #5a4a3a;
+  --muted: #8b7a66;
+  --line: #e6d8be;
+
+  --accent: #c14a3a;       /* warm brick red */
+  --accent-ink: #6f1e15;
+  --accent-soft: #f3d5cf;
+
+  --gold: #d4a64a;
+  --paper: #fffaee;
+  --paper-shadow: rgba(60, 40, 20, 0.18);
+
+  --hat: #1e1611;
+  --hat-band: #c14a3a;
+
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow-sm: 0 2px 6px rgba(60, 40, 20, 0.08);
+  --shadow-md: 0 8px 24px rgba(60, 40, 20, 0.12);
+  --shadow-lg: 0 16px 40px rgba(60, 40, 20, 0.18);
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Georgia", "Times New Roman", serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.45;
+  min-height: 100vh;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 80% -10%, var(--bg-2), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, var(--bg-2), transparent 50%),
+    var(--bg);
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  color: var(--ink);
+  margin: 0 0 0.4em;
+}
+
+h1 { font-size: 2rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.15rem; }
+
+a { color: var(--accent-ink); }
+
+code {
+  background: var(--bg-2);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.92em;
+}
+
+.muted { color: var(--muted); }
+.small { font-size: 0.85rem; }
+.hidden { display: none !important; }
+
+/* =================================================================
+   Buttons / inputs
+   ================================================================= */
+.btn {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.05s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
+  background: var(--bg-2);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+}
+.btn:hover { box-shadow: var(--shadow-sm); }
+.btn:active { transform: translateY(1px); }
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-ink); }
+
+.btn-secondary {
+  background: var(--ink);
+  color: #fff;
+}
+.btn-secondary:hover { background: #000; }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+.btn-ghost:hover { background: var(--card); }
+
+.btn-danger {
+  color: var(--accent-ink);
+  border-color: var(--accent-soft);
+}
+.btn-danger:hover { background: var(--accent-soft); }
+
+.btn-tiny {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+}
+
+input[type="text"], input[type="password"], input[type="number"], input[type="email"] {
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--ink);
+  width: 100%;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+label {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+/* =================================================================
+   Layout primitives
+   ================================================================= */
+.screen { display: block; min-height: 100vh; }
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--line);
+}
+
+.card--login {
+  max-width: 440px;
+  margin: 6vh auto;
+  text-align: center;
+  padding: 32px 28px;
+}
+
+.form { display: grid; gap: 8px; text-align: left; margin: 18px 0 14px; }
+.form label { margin-top: 6px; }
+.form .btn { margin-top: 12px; justify-content: center; }
+
+.login-hint { margin-top: 8px; }
+
+.lead {
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+  margin: 0 0 16px;
+}
+
+/* =================================================================
+   Topbar (admin)
+   ================================================================= */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.topbar-left, .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.phase-pill {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* =================================================================
+   Hat illustration (CSS-only)
+   ================================================================= */
+.hat-illustration {
+  position: relative;
+  width: 220px;
+  height: 150px;
+  margin: 0 auto;
+  filter: drop-shadow(0 12px 20px rgba(40, 25, 10, 0.18));
+}
+/* Legacy modifier (kept only in case future templates use it).
+   The landing now uses .hero-illustration instead. */
+.hat-illustration--big { width: 260px; height: 180px; margin-top: 6px; }
+
+.hat {
+  position: absolute;
+  inset: 0;
+}
+
+/* =================================================================
+   Landing hero — hat centered in a balanced block.
+   ================================================================= */
+.hero-illustration {
+  /* `display: flex` centers the hat horizontally without any
+     absolute positioning. The block defines its own height instead
+     of using padding-bottom tricks, so the title below has a
+     predictable gap. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  max-width: 320px;
+  margin: 8px auto 22px;
+}
+.hero-hat {
+  position: relative;
+  width: 78%;
+  /* Hat aspect ratio matches the brim/top/band percent layout so
+     they scale together at any width. */
+  aspect-ratio: 22 / 15;
+  filter: drop-shadow(0 12px 20px rgba(40, 25, 10, 0.18));
+}
+/* The brim/top/band rules defined earlier target `.hat-brim`,
+   `.hat-top`, `.hat-band` directly; they work inside `.hero-hat`
+   because `.hero-hat` is a positioned ancestor. */
+
+@media (max-width: 600px) {
+  .hero-illustration {
+    max-width: 240px;
+    margin: 4px auto 16px;
+  }
+  .hero-hat {
+    width: 84%;
+  }
+}
+.hat-brim {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  height: 26px;
+  background: var(--hat);
+  border-radius: 50%;
+}
+.hat-top {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 62%;
+  height: 78%;
+  background: var(--hat);
+  border-radius: 18px 18px 8px 8px;
+}
+.hat-band {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 62%;
+  height: 14px;
+  background: var(--hat-band);
+}
+
+/* =================================================================
+   Hat stage (admin dashboard center piece)
+   ================================================================= */
+.hat-stage {
+  position: relative;
+  padding: 28px 16px 36px;
+  text-align: center;
+  background:
+    radial-gradient(420px 220px at 50% 60%, rgba(193, 74, 58, 0.08), transparent 70%),
+    transparent;
+}
+
+.hat-status {
+  max-width: 460px;
+  margin: 8px auto 0;
+}
+
+.progress-line {
+  font-size: 1.05rem;
+  margin: 6px 0 8px;
+  color: var(--ink-soft);
+}
+.progress-line strong {
+  color: var(--ink);
+  font-size: 1.6rem;
+  font-family: var(--font-display);
+  display: inline-block;
+  margin-left: 6px;
+}
+
+.progress-bar {
+  background: var(--bg-2);
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 6px auto 10px;
+  max-width: 420px;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--gold));
+  width: 0%;
+  transition: width 0.4s ease;
+}
+
+.phase-message {
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-style: italic;
+  min-height: 1.5em;
+}
+.phase-message.success { color: var(--accent-ink); font-weight: 600; font-style: normal; }
+
+.phase-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+/* The cloud of slips around the hat — each slip is one submitted word. */
+.slips-cloud {
+  position: relative;
+  margin: 24px auto 0;
+  max-width: 920px;
+  min-height: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  padding: 8px 8px 4px;
+}
+
+.slip {
+  background: var(--paper);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 0.95rem;
+  color: var(--ink);
+  box-shadow: 0 6px 14px var(--paper-shadow);
+  transform: rotate(var(--rot, -2deg));
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 2px solid #f1e6c8;
+  position: relative;
+}
+.slip::after {
+  /* Tiny "tape" highlight to make slips feel paper-ish. */
+  content: "";
+  position: absolute;
+  top: -4px; left: 50%;
+  width: 28px; height: 8px;
+  background: rgba(212, 166, 74, 0.35);
+  transform: translateX(-50%) rotate(2deg);
+  border-radius: 2px;
+}
+.slip--locked { opacity: 0.85; }
+
+/* =================================================================
+   Admin grid
+   ================================================================= */
+.admin-main {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 22px 60px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.section-words { grid-column: 1 / -1; }
+
+@media (max-width: 800px) {
+  .admin-grid { grid-template-columns: 1fr; }
+}
+
+.control-row {
+  margin: 10px 0;
+}
+.words-per-player-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.words-per-player-row input { max-width: 100px; }
+
+.phase-help { margin-top: 12px; }
+
+/* =================================================================
+   Add-row forms (players / teams)
+   ================================================================= */
+.add-row {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+.add-row input { flex: 1 1 auto; }
+
+/* =================================================================
+   Player list
+   ================================================================= */
+.player-list, .team-list, .word-list, .roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.player-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.player-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.player-progress-chip {
+  font-size: 0.78rem;
+  background: var(--bg-2);
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.player-progress-chip.done {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+.team-chip {
+  font-size: 0.78rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+/* Player connectivity badge in the admin player list. */
+.presence-badge {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.presence-online { background: #d8eecf; color: #2e6b3a; }
+.presence-recent { background: #fbe7c1; color: #7a5119; }
+.presence-offline { background: var(--bg-2); color: var(--muted); }
+.player-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.player-actions select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+  background: var(--card);
+  font-size: 0.85rem;
+}
+
+/* =================================================================
+   Team list
+   ================================================================= */
+.team-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.team-row-main { display: flex; flex-direction: column; gap: 2px; }
+.team-name { font-weight: 600; }
+.team-members { font-size: 0.85rem; color: var(--muted); }
+
+/* =================================================================
+   Words by player (the per-player word entry blocks)
+   ================================================================= */
+.player-word-block {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-top: 14px;
+  background: var(--bg);
+}
+.player-word-block.done {
+  background: linear-gradient(180deg, rgba(212, 166, 74, 0.08), transparent);
+  border-color: var(--gold);
+}
+.player-word-block.locked {
+  opacity: 0.85;
+}
+.player-word-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.player-word-block-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+
+.add-word-form {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.add-word-form input { flex: 1 1 auto; }
+
+.word-list {
+  display: flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px;
+}
+.word-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--paper);
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: var(--shadow-sm);
+  border-top: 2px solid #f1e6c8;
+}
+.word-item input.word-edit {
+  border: none;
+  background: transparent;
+  font-family: var(--font-display);
+  font-style: italic;
+  padding: 0;
+  width: auto;
+  min-width: 60px;
+  max-width: 200px;
+}
+.word-item input.word-edit:focus {
+  box-shadow: none;
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+}
+.word-item.locked {
+  background: var(--bg-2);
+  color: var(--ink-soft);
+}
+.word-item.locked input.word-edit { color: var(--ink-soft); }
+
+/* =================================================================
+   Toast
+   ================================================================= */
+.toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  max-width: 90vw;
+  pointer-events: none;
+}
+.toast.error { background: var(--accent); }
+.toast.info { background: var(--ink); }
+
+/* =================================================================
+   Responsive tweaks
+   ================================================================= */
+@media (max-width: 540px) {
+  .topbar { padding: 12px; }
+  .admin-main { padding: 0 12px 40px; }
+  .card { padding: 16px; }
+  .card--login { margin: 4vh 12px; padding: 22px 18px; }
+  .progress-line strong { font-size: 1.3rem; }
+}
+
+/* =================================================================
+   New screens (landing + admin home + player join + player view +
+   round 1 + debug)
+   ================================================================= */
+
+.screen-landing, .screen-admin-login, .screen-admin-home,
+.screen-player-join {
+  display: block;
+  min-height: 100vh;
+  padding: 0 20px;
+}
+
+.card--landing, .card--narrow {
+  max-width: 440px;
+  margin: 6vh auto;
+  text-align: center;
+  padding: 30px 26px;
+}
+.card--narrow { max-width: 420px; }
+
+.landing-actions {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 14px;
+}
+.btn-large {
+  font-size: 1.05rem;
+  padding: 14px 18px;
+  border-radius: 12px;
+  justify-content: center;
+  width: 100%;
+}
+
+#provider-banner {
+  margin-top: 6px;
+}
+
+.centered-main {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 24px 12px;
+}
+
+/* Code badge in admin topbar */
+.code-badge {
+  font-family: "Menlo", "Consolas", monospace;
+  font-weight: 700;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 8px;
+  padding: 4px 10px;
+  letter-spacing: 0.18em;
+  font-size: 0.85rem;
+}
+
+/* "Me" chip in player topbar */
+.me-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+.me-name { font-weight: 700; }
+.me-team { color: var(--muted); font-size: 0.85rem; }
+
+.hat-privacy-note {
+  margin-top: 8px;
+}
+
+/* Progress list (admin section) */
+.progress-list {
+  list-style: none; padding: 0; margin: 8px 0 0;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+}
+.progress-name { font-weight: 600; }
+.progress-chip {
+  background: var(--bg-2);
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.82rem;
+}
+.progress-chip.done {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* Validation panel */
+.section-validation .badge {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  padding: 2px 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.validation-list {
+  list-style: none; padding: 0; margin: 8px 0 12px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.validation-row,
+.validation-word-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.validation-row .word-card-main,
+.validation-word-card .word-card-main {
+  min-width: 0;
+}
+.validation-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 1.05rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.validation-row .word-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* =================================================================
+   Word Review panel (host)
+   ================================================================= */
+.word-review-summary { margin: 6px 0; }
+.word-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.word-review-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.word-review-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.word-review-card .word-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.word-review-card .word-card-text,
+.word-review-input {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.05rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.word-review-input {
+  width: 100%;
+}
+.word-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 0.85rem;
+}
+.word-review-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--bg-2);
+  color: var(--ink-soft);
+}
+.word-review-status.status-submitted { background: #fbe7c1; color: #7a5119; }
+.word-review-status.status-approved  { background: #d8eecf; color: #2e6b3a; }
+.word-review-status.status-removed   { background: var(--bg-2); color: var(--muted); }
+.word-review-status.status-locked    { background: var(--accent-soft); color: var(--accent-ink); }
+.word-review-status.status-needs_revision { background: #f3d5cf; color: var(--accent-ink); }
+.word-review-duplicate {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+.word-review-revision-reason {
+  background: var(--paper);
+  border-left: 3px solid var(--accent);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.word-review-buttons,
+.word-review-card .word-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* Revision reason dialog (inline composer) */
+.revision-reason-composer {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  background: var(--card);
+  border: 1px dashed var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+.revision-reason-composer input[type="text"] {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+/* =================================================================
+   Player revision panel
+   ================================================================= */
+.player-revision-panel {
+  border-color: var(--accent-soft);
+  background: linear-gradient(180deg, rgba(193, 74, 58, 0.06), var(--card));
+}
+.player-revision-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.player-revision-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.player-revision-card .word-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.player-revision-current {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.05rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.player-revision-reason {
+  background: var(--paper);
+  border-left: 3px solid var(--accent);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.player-revision-input-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.player-revision-input-row input[type="text"] {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.player-revision-card .word-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+@media (max-width: 700px) {
+  .word-review-card,
+  .validation-word-card,
+  .validation-row,
+  .player-revision-card {
+    grid-template-columns: 1fr;
+  }
+  .word-review-card .word-card-actions,
+  .validation-row .word-card-actions,
+  .validation-row,
+  .player-revision-card .word-card-actions {
+    justify-content: stretch;
+  }
+  .word-review-card .word-card-actions button,
+  .validation-row .word-card-actions button,
+  .word-review-buttons button,
+  .player-revision-card .word-card-actions button {
+    flex: 1 1 100%;
+  }
+  .validation-row {
+    display: grid;
+  }
+  .validation-row > button {
+    flex: 1 1 100%;
+  }
+}
+
+/* Round 1 sections */
+.section-round1 {
+  grid-column: 1 / -1;
+}
+.round1-meta {
+  display: flex; flex-direction: column; gap: 4px; margin: 8px 0 12px;
+}
+.round1-meta-row { font-weight: 600; }
+.round1-public {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0;
+}
+.round1-admin-actions {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+
+/* Round 1 player card */
+.round1-card .active-word-box {
+  background: var(--paper);
+  border-radius: var(--radius);
+  border: 2px solid var(--gold);
+  padding: 18px;
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  margin: 12px 0;
+}
+.active-word-label { margin-bottom: 6px; }
+.active-word-text {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 2rem;
+  color: var(--ink);
+  word-break: break-word;
+}
+#round1-card .btn-large { width: 100%; }
+
+/* ---- Mobile explainer screen --------------------------------- */
+/* When the round1-card is in explainer mode, optimize for one-hand
+   thumb reach: large word, large timer, sticky action bar at the
+   bottom. Activated by viewport, not by JS — same DOM tree serves
+   both desktop and mobile. */
+.mobile-explainer-screen .explainer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mobile-action-button-wrap { display: contents; }
+.mobile-action-button {
+  width: 100%;
+  min-height: 64px;
+  font-size: 1.25rem;
+}
+.pre-start-screen {
+  background: var(--paper);
+  border-radius: var(--radius);
+  border: 1px dashed var(--gold);
+  padding: 24px;
+  text-align: center;
+  margin: 16px 0;
+}
+
+@media (max-width: 700px) {
+  /* Compact the surrounding chrome so the active word + buttons
+     get the most real estate. */
+  .round1-card .active-word-box {
+    padding: 28px 16px;
+    margin: 16px 0;
+  }
+  .active-word-text.mobile-active-word {
+    font-size: clamp(2rem, 10vw, 4rem);
+    line-height: 1.1;
+  }
+  .round-timer-display {
+    font-size: clamp(2rem, 8vw, 3.5rem);
+  }
+  /* Pre-start message + Start button: large, centered, high
+     contrast for the "Press Start" moment. */
+  .pre-start-screen {
+    padding: 32px 16px;
+  }
+  .pre-start-screen .muted {
+    font-size: 1.1rem;
+  }
+  /* Sticky action bar at the bottom for the Guessed (+ Wrong)
+     buttons so they're always reachable while the explainer holds
+     the phone. */
+  .mobile-explainer-screen .explainer-actions {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0) 0%,
+      var(--cream) 22%,
+      var(--cream) 100%);
+    padding: 16px 0 12px;
+    z-index: 5;
+  }
+  /* Hide things that compete for screen space on a mobile
+     explainer view: round meta (turn/team/explainer lines) stays,
+     but we tighten its padding. */
+  .round1-card #round1-meta-player {
+    font-size: 0.85rem;
+  }
+  /* Tap targets across the board are at least 44px (Apple HIG); for
+     primary game actions we go 64px per spec. */
+  .mobile-action-button { min-height: 64px; }
+}
+
+/* Debug panel */
+.debug-panel {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  width: 280px;
+  max-height: 70vh;
+  overflow: auto;
+  background: rgba(20, 12, 6, 0.92);
+  color: #f3e8c8;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  z-index: 200;
+  box-shadow: var(--shadow-lg);
+  /* The overlay must not intercept clicks on the UI beneath it
+     (e.g. the player's submit-word button if it falls under). Only
+     the inner buttons need pointer events. */
+  pointer-events: none;
+}
+.debug-panel button {
+  pointer-events: auto;
+}
+.debug-title {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+.debug-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 8px;
+  margin: 0 0 8px;
+}
+.debug-dl dt {
+  color: #e7c87a;
+  font-weight: 600;
+}
+.debug-dl dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+
+/* Registration / readiness widgets in admin controls */
+.status-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: #d8eecf;
+  color: #2e6b3a;
+}
+.status-badge.locked {
+  background: #f3d5cf;
+  color: var(--accent-ink);
+}
+.readiness {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+.readiness-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.92rem;
+}
+.readiness-item .check { width: 18px; text-align: center; }
+.readiness-item.ok .check { color: #2e6b3a; }
+.readiness-item.fail .check { color: var(--accent); }
+.readiness-item.fail { color: var(--ink-soft); }
+
+/* Debug panel: audit-log tail */
+.debug-events {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 8px;
+  max-height: 140px;
+  overflow: auto;
+}
+.debug-events li {
+  font-family: "Menlo", "Consolas", monospace;
+  font-size: 11px;
+  padding: 1px 0;
+  color: #d8c987;
+}
+
+/* =================================================================
+   Round 1 timer + Start button
+   ================================================================= */
+
+/* Big countdown shown inside the player's round1-card. */
+.round-timer-display {
+  font-family: "Menlo", "Consolas", monospace;
+  font-weight: 700;
+  font-size: 2.4rem;
+  text-align: center;
+  color: var(--ink-soft);
+  margin: 4px 0 14px;
+  letter-spacing: 0.04em;
+}
+.round-timer-display.is-active {
+  color: var(--accent-ink);
+}
+
+/* Compact countdown shown next to the admin's status pill. */
+.round-timer-admin {
+  font-family: "Menlo", "Consolas", monospace;
+  font-weight: 700;
+  margin-left: 10px;
+  color: var(--ink-soft);
+}
+
+.round1-status-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 12px;
+}
+
+.round1-duration-row {
+  margin-bottom: 12px;
+}
+
+/* "Time is over" — small banner shown briefly on the round1-card. */
+.time-over {
+  margin-top: 10px;
+  color: var(--accent-ink);
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Stack the explainer's Start / Guessed buttons (only one is
+   visible at a time, but on smaller screens we want full-width). */
+#round1-card .btn-large + .btn-large { margin-top: 8px; }
+
+/* =================================================================
+   3-round gameplay: round info + scoreboard + final results
+   ================================================================= */
+
+/* Round info header on both the admin panel and the player round card. */
+.round-info {
+  text-align: center;
+  margin: 0 0 12px;
+}
+.round-info-title {
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent-ink);
+}
+.round-info-rule {
+  margin-top: 4px;
+  font-style: italic;
+}
+.round-rule {
+  margin: 0 0 12px;
+  font-style: italic;
+}
+
+/* Round settings panel (per-round timer durations). */
+.section-round-settings {
+  grid-column: 1 / -1;
+}
+.section-round-settings .round-duration-row { margin: 10px 0; }
+
+/* Scoreboard (per-round + total). */
+.round-scoreboard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 12px;
+}
+.scoreboard-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+.scoreboard-name {
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.scoreboard-total {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--accent-ink);
+  font-size: 1.05rem;
+  margin-left: auto;
+}
+.scoreboard-breakdown {
+  flex-basis: 100%;
+}
+
+/* Final results panel. */
+.section-final-results, .section-final-results-player {
+  grid-column: 1 / -1;
+}
+.final-results-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.final-result-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+}
+.final-result-row.winner {
+  background: linear-gradient(180deg, rgba(212, 166, 74, 0.15), var(--bg));
+  border-color: var(--gold);
+}
+.final-result-name { font-weight: 700; font-size: 1.05rem; }
+.final-result-total {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--accent-ink);
+  margin-left: auto;
+}
+.final-result-breakdown { flex-basis: 100%; }
+.final-winner {
+  margin-top: 12px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.15rem;
+  color: var(--accent-ink);
+}
+
+.final-score-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0 10px;
+}
+.final-score-table th,
+.final-score-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.final-score-table th {
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: var(--bg);
+}
+.final-score-table td:last-child,
+.final-score-table th:last-child {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--accent-ink);
+}
+
+.final-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  justify-content: center;
+}
+
+/* =================================================================
+   Team Randomizer (admin teams section)
+   ================================================================= */
+.team-randomizer {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.team-randomizer-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+.team-randomizer .team-randomizer-mode-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 14px;
+  font-weight: 500;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.team-randomizer .randomizer-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.team-randomizer .randomizer-input-row input[type="number"] {
+  max-width: 120px;
+}
+.team-randomizer .randomizer-preview {
+  margin: 6px 0 10px;
+  min-height: 1.2em;
+}
+.team-randomizer.locked {
+  opacity: 0.6;
+}
+
+/* Inline team-row rename composer */
+.team-row .team-rename-form {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.team-row .team-rename-form input[type="text"] {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.team-row .team-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.team-status-chip {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 600;
+}
+.team-status-chip.ok { background: #d8eecf; color: #2e6b3a; }
+.team-status-chip.warn { background: #fbe7c1; color: #7a5119; }
+.team-status-chip.empty { background: var(--bg-2); color: var(--muted); }
+
+/* =================================================================
+   Rematch modal (final results)
+   ================================================================= */
+.rematch-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 12, 6, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+.rematch-modal.hidden { display: none; }
+.rematch-modal-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 22px;
+  max-width: 420px;
+  width: 100%;
+}
+.rematch-option {
+  margin: 8px 0;
+  font-size: 0.95rem;
+}
+.rematch-option label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+}
+.rematch-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  justify-content: flex-end;
+}
+
+/* Banner shown briefly on a player's screen when the host removes
+   them from the game. The player tab tears down right after, but
+   the banner gives them visual confirmation of the action. */
+.player-removed-banner {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  text-align: center;
+  padding: 16px;
+  margin: 12px 0;
+}
