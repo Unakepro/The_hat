@@ -1073,6 +1073,69 @@
     };
   }
 
+  // Single oracle for "everyone submitted enough words to review."
+  // Counts actual word documents (grouped by ownerPlayerId / ownerUid)
+  // — NOT player.wordCount — because the cached count can drift if
+  // a submission/delete didn't atomically update both sides. The same
+  // helper drives the admin hat progress, the per-player chips, the
+  // Review words button, and the server-side `startWordReview` gate
+  // so the UI and the gate cannot disagree.
+  function getWordSubmissionReadiness(game, players, words) {
+    const g = game || {};
+    const wpp = g.wordsPerPlayer || 0;
+    const safePlayers = (players || []).filter(p => !p.removed);
+    const liveWords = (words || []).filter(w => w && w.status !== 'removed');
+
+    // Index counts by both ownerPlayerId and ownerUid so we tolerate
+    // either field. The Firebase provider stamps both at submitWord
+    // time (ownerPlayerId === ownerUid on Firebase); the mock provider
+    // sets ownerPlayerId distinctly.
+    const byPlayerId = {};
+    const byUid = {};
+    liveWords.forEach(w => {
+      if (w.ownerPlayerId) byPlayerId[w.ownerPlayerId] = (byPlayerId[w.ownerPlayerId] || 0) + 1;
+      if (w.ownerUid)      byUid[w.ownerUid]           = (byUid[w.ownerUid] || 0) + 1;
+    });
+
+    const perPlayerCounts = {};
+    const missingPlayers = [];
+    let totalSubmitted = 0;
+    safePlayers.forEach(p => {
+      const pid = p.id || p.uid;
+      const count = Math.max(byPlayerId[p.id] || 0, byUid[p.uid] || 0);
+      perPlayerCounts[pid] = count;
+      totalSubmitted += count;
+      if (wpp >= 1 && count < wpp) {
+        missingPlayers.push({
+          playerId: pid,
+          playerName: p.name || '(unnamed)',
+          submittedCount: count,
+          requiredCount: wpp,
+        });
+      }
+    });
+
+    const totalRequired = wpp * safePlayers.length;
+
+    const reasons = [];
+    if (safePlayers.length === 0) reasons.push('No players have joined yet.');
+    if (wpp < 1) reasons.push('Words per player must be at least 1.');
+    if (missingPlayers.length > 0) {
+      reasons.push('Missing words: ' + missingPlayers
+        .map(m => m.playerName + ' ' + m.submittedCount + '/' + m.requiredCount)
+        .join(', ') + '.');
+    }
+
+    return {
+      canReview: reasons.length === 0,
+      totalRequired: totalRequired,
+      totalSubmitted: totalSubmitted,
+      missingPlayers: missingPlayers,
+      perPlayerCounts: perPlayerCounts,
+      reasons: reasons,
+    };
+  }
+
   // Connectivity thresholds for the admin's player status badge.
   // The player heartbeat updates lastSeenAt every ~25 seconds, so
   // the 45s "Online" window allows for one missed beat.
@@ -1131,6 +1194,7 @@
     MIN_TEAMS: MIN_TEAMS,
     buildTeamMembership: buildTeamMembership,
     getWordCollectionReadiness: getWordCollectionReadiness,
+    getWordSubmissionReadiness: getWordSubmissionReadiness,
     validateDurationSeconds: validateDurationSeconds,
     formatTime: formatTime,
     getPendingValidationWordIds: getPendingValidationWordIds,

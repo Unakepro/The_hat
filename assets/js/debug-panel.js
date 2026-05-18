@@ -109,6 +109,50 @@
     });
     root.appendChild(dl);
 
+    // Word submission breakdown — surfacing the cached vs actual
+    // counts means a stale player.wordCount is visible at a glance
+    // instead of producing a "Cannot start review" mystery.
+    const sub = current.submission;
+    if (sub) {
+      const sh = document.createElement('div');
+      sh.className = 'debug-title';
+      sh.textContent = 'submission';
+      root.appendChild(sh);
+      const sdl = document.createElement('dl');
+      sdl.className = 'debug-dl';
+      const srows = [
+        ['wordsPerPlayer', sub.wordsPerPlayer],
+        ['totalRequired',  sub.totalRequired],
+        ['totalSubmitted', sub.totalSubmitted],
+        ['canReview',      sub.canReview ? 'yes' : 'no'],
+        ['missing',        (sub.missingPlayers || []).length
+                            ? sub.missingPlayers.map(m => m.playerName + ' ' + m.submittedCount + '/' + m.requiredCount).join(', ')
+                            : '—'],
+      ];
+      srows.forEach(([k, val]) => {
+        const dt = document.createElement('dt'); dt.textContent = k;
+        const dd = document.createElement('dd');
+        dd.textContent = val == null ? '—' : String(val);
+        sdl.appendChild(dt); sdl.appendChild(dd);
+      });
+      root.appendChild(sdl);
+      // Per-player rows. Mismatches highlighted so a drift bug
+      // jumps out.
+      const rows = sub.rows || [];
+      if (rows.length) {
+        const ul = document.createElement('ul');
+        ul.className = 'debug-events';
+        rows.forEach(r => {
+          const li = document.createElement('li');
+          li.textContent = r.name + ': actual=' + r.actual + ', cached=' + r.cached +
+            (r.mismatch ? ' ⚠ MISMATCH' : '');
+          if (r.mismatch) li.style.color = '#c44';
+          ul.appendChild(li);
+        });
+        root.appendChild(ul);
+      }
+    }
+
     // Validation arrays — surfacing these makes the "2 pending /
     // 0 cards" class of drift bugs obvious at a glance.
     const v = current.validation;

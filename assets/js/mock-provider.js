@@ -530,7 +530,7 @@
           !!this._adminGames[doc.gameId];
         if (!isAdmin) return cb([]);
         const p = doc.phase;
-        const open = p === PHASE.WORD_REVIEW ||
+        const textOpen = p === PHASE.WORD_REVIEW ||
           p === PHASE.HAT_LOCKED ||
           p === PHASE.ROUND_1_READY ||
           p === PHASE.ROUND_2_READY ||
@@ -539,7 +539,14 @@
           p === PHASE.ROUND_2_FINISHED ||
           p === PHASE.ROUND_3_FINISHED ||
           p === PHASE.GAME_FINISHED;
-        if (!open) return cb([]);
+        // During WORD_COLLECTION the admin needs accurate per-player
+        // counts so the hat progress and the Review words gate use the
+        // same source of truth — but they must not see word texts.
+        // Emit the docs with `text` stripped in that phase.
+        if (p === PHASE.WORD_COLLECTION) {
+          return cb(doc.words.map(w => Object.assign({}, w, { text: '' })));
+        }
+        if (!textOpen) return cb([]);
         cb(doc.words.map(w => Object.assign({}, w)));
       });
     }
@@ -771,10 +778,20 @@
       const doc = this._requireGame(gameId);
       this._requireAdmin(doc);
       this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
-      const allDone = doc.players.length > 0 &&
-        doc.players.every(p => p.wordCount === doc.wordsPerPlayer);
-      if (!allDone) {
-        throw new GameError('Cannot start review yet. Some players are missing words.');
+      // Canonical helper — same one the admin UI uses for the progress
+      // chips and the Review words button. Source of truth is the
+      // word docs (filtered by status !== 'removed'), NOT the cached
+      // player.wordCount, so a drifted cache cannot block the gate.
+      const r = U.getWordSubmissionReadiness(
+        { wordsPerPlayer: doc.wordsPerPlayer },
+        doc.players || [],
+        doc.words || []
+      );
+      if (!r.canReview) {
+        const haveMissing = r.missingPlayers.length > 0;
+        throw new GameError(haveMissing
+          ? 'Cannot start review. ' + r.reasons.filter(s => s.indexOf('Missing words:') === 0)[0]
+          : 'Word review validation mismatch. Please refresh or run repair.');
       }
       doc.words.forEach(w => {
         if (!w.status || w.status === 'active') w.status = 'submitted';
@@ -782,6 +799,32 @@
       doc.phase = PHASE.WORD_REVIEW;
       logEvent(doc, 'word_review_started', this._uid);
       saveGame(gameId, doc);
+    }
+
+    // Admin-only repair. Recomputes player.wordCount from the actual
+    // words collection so a drifted cache is fixed without having to
+    // reopen / re-submit.
+    async repairPlayerWordCounts(gameId) {
+      const doc = this._requireGame(gameId);
+      this._requireAdmin(doc);
+      const counts = {};
+      (doc.words || []).forEach(w => {
+        if (!w || w.status === 'removed') return;
+        if (w.ownerUid)      counts[w.ownerUid]      = (counts[w.ownerUid] || 0) + 1;
+        if (w.ownerPlayerId && w.ownerPlayerId !== w.ownerUid) {
+          counts[w.ownerPlayerId] = (counts[w.ownerPlayerId] || 0) + 1;
+        }
+      });
+      let repaired = 0;
+      (doc.players || []).forEach(p => {
+        const expected = Math.max(counts[p.uid] || 0, counts[p.id] || 0);
+        if ((p.wordCount | 0) !== expected) {
+          p.wordCount = expected;
+          repaired++;
+        }
+      });
+      if (repaired > 0) saveGame(gameId, doc);
+      return { repaired: repaired };
     }
 
     // WORD_REVIEW → WORD_COLLECTION. Host may decide a player needs

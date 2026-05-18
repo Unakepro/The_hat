@@ -123,6 +123,25 @@
   function buildDebugInfo() {
     const r = snapshot.round || null;
     const t = r && r.currentTurn;
+    // Submission readiness — surfaces wordsPerPlayer, totals, and any
+    // mismatches between player.wordCount and the actual word-doc
+    // count so a stale cache is visible at a glance.
+    const sub = HG.Utils.getWordSubmissionReadiness(
+      { wordsPerPlayer: snapshot.game && snapshot.game.wordsPerPlayer },
+      snapshot.players || [],
+      snapshot.hat || []
+    );
+    const submissionRows = (snapshot.players || []).map(p => {
+      const pid = p.id || p.uid;
+      const actual = sub.perPlayerCounts[pid] || 0;
+      const cached = p.wordCount | 0;
+      return {
+        name: p.name,
+        actual: actual,
+        cached: cached,
+        mismatch: actual !== cached,
+      };
+    });
     return {
       role: 'admin',
       provider: provider ? provider.name : 'none',
@@ -136,6 +155,14 @@
       teams: (snapshot.teams || []).length,
       hatWords: (snapshot.hat || []).length,
       round: r,
+      submission: {
+        wordsPerPlayer: snapshot.game && snapshot.game.wordsPerPlayer,
+        totalRequired: sub.totalRequired,
+        totalSubmitted: sub.totalSubmitted,
+        canReview: sub.canReview,
+        missingPlayers: sub.missingPlayers,
+        rows: submissionRows,
+      },
       // Validation visibility — these are the arrays that the
       // "2 pending / 0 cards" bug was caused by drifting. Putting
       // them in the debug overlay means any future drift is

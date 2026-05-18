@@ -175,7 +175,7 @@
     'startWordCollection', 'startWordReview', 'reopenWordCollection',
     'approveWord', 'approveAllWords', 'hostRemoveWord', 'hostEditWord',
     'requestWordRevision', 'resubmitRevisedWord', 'editWordAsHost',
-    'submitWord', 'updateWord', 'deleteWord',
+    'submitWord', 'updateWord', 'deleteWord', 'repairPlayerWordCounts',
     'lockHat', 'startRound1Placeholder', 'startRound1', 'startNextRound',
     'startNextTurn', 'startTurnTimer', 'markGuessed', 'markWrong',
     'endTurn', 'confirmGuessedWord', 'rejectGuessedWord',

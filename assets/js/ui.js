@@ -29,6 +29,13 @@
       case PHASE.TEAMS_SETUP: return 'Assign players to teams, then start word collection.';
       case PHASE.WORD_COLLECTION:
         if (allSubmitted) return 'All words are in the hat. Review them before locking.';
+        // List the players who still owe words; falls back to the
+        // count if the readiness helper isn't available.
+        if (progress.readiness && progress.readiness.missingPlayers.length > 0) {
+          return 'Still waiting on: ' + progress.readiness.missingPlayers
+            .map(m => m.playerName + ' ' + m.submittedCount + '/' + m.requiredCount)
+            .join(', ') + '.';
+        }
         return 'Players are submitting their words. ' +
           Math.max(0, progress.total_required - progress.total_submitted) + ' to go.';
       case PHASE.WORD_REVIEW: return 'Review submitted words. Approve or remove each before locking the hat.';
@@ -58,14 +65,24 @@
   }
 
   // -------------------- Admin renderers --------------------------
+  // Single source of truth for the admin's hat progress: the
+  // getWordSubmissionReadiness helper, which counts actual word docs
+  // (state.hat) rather than the cached player.wordCount. The same
+  // helper backs the Review words button + the server-side gate, so
+  // the UI and the backend can't disagree.
   function computeProgress(state) {
-    const required = (state.game && state.game.wordsPerPlayer) || 0;
-    const players = state.players || [];
-    const total_required = required * players.length;
-    const total_submitted = players.reduce((s, p) => s + (p.wordCount || 0), 0);
-    const all_submitted = players.length > 0 &&
-      players.every(p => (p.wordCount || 0) === required);
-    return { total_required, total_submitted, all_submitted };
+    const game = state.game || {};
+    const r = U.getWordSubmissionReadiness(
+      { wordsPerPlayer: game.wordsPerPlayer },
+      state.players || [],
+      state.hat || []
+    );
+    return {
+      total_required: r.totalRequired,
+      total_submitted: r.totalSubmitted,
+      all_submitted: r.canReview,
+      readiness: r,
+    };
   }
 
   function renderAdminDashboard(state, actions) {
@@ -630,6 +647,10 @@
     clear(list);
     const players = state.players || [];
     $('players-empty').classList.toggle('hidden', players.length > 0);
+    const submission = U.getWordSubmissionReadiness(
+      { wordsPerPlayer: (state.game && state.game.wordsPerPlayer) || 0 },
+      players, state.hat || []
+    );
 
     players.forEach(p => {
       const row = el('li', {
@@ -659,9 +680,10 @@
         }));
       }
       const required = (state.game && state.game.wordsPerPlayer) || 0;
+      const submitted = submission.perPlayerCounts[p.id || p.uid] || 0;
       const chip = el('span', {
-        className: 'player-progress-chip' + ((p.wordCount || 0) >= required ? ' done' : ''),
-        text: (p.wordCount || 0) + ' / ' + required,
+        className: 'player-progress-chip' + (submitted >= required ? ' done' : ''),
+        text: submitted + ' / ' + required,
       });
       main.appendChild(chip);
       const team = (state.teams || []).find(t => t.id === p.teamId);
@@ -847,6 +869,7 @@
     const list = $('progress-list');
     clear(list);
     const required = (state.game && state.game.wordsPerPlayer) || 0;
+    const counts = (progress && progress.readiness && progress.readiness.perPlayerCounts) || {};
     (state.players || []).forEach(p => {
       const li = el('li', {
         className: 'progress-row',
@@ -854,10 +877,11 @@
         dataset: { playerId: p.id || p.uid },
       });
       li.appendChild(el('span', { className: 'progress-name', text: p.name }));
-      const isDone = (p.wordCount || 0) >= required;
+      const submitted = counts[p.id || p.uid] || 0;
+      const isDone = submitted >= required;
       li.appendChild(el('span', {
         className: 'progress-chip' + (isDone ? ' done' : ''),
-        text: (p.wordCount || 0) + ' / ' + required,
+        text: submitted + ' / ' + required,
       }));
       list.appendChild(li);
     });

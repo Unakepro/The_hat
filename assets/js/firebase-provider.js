@@ -398,25 +398,37 @@
         );
     }
     listenToHat(gameId, cb) {
-      // The Firestore rule for `words` only opens admin-wide reads
-      // once we hit a phase where the host needs the full hat: review
-      // and post-lock. The mock provider follows the same gate (see
-      // mock-provider.listenToHat) and the renderer expects words to
-      // appear during WORD_REVIEW so the host can approve / edit /
-      // remove them.
+      // Admin-only listener. We emit the words collection in two
+      // shapes depending on the phase:
+      //   - WORD_COLLECTION: docs with `text` stripped — admin needs
+      //     accurate per-player counts so the hat progress and the
+      //     Review words gate share a source of truth, but must NOT
+      //     see word texts before review opens.
+      //   - WORD_REVIEW and beyond: full docs with text.
       let wordsUnsub = null;
+      let currentPhase = null;
       const gameUnsub = this._gameRef(gameId).onSnapshot(snap => {
         if (!snap.exists) { cb([]); return; }
         const phase = snap.data().phase;
-        const open = phase === PHASE.WORD_REVIEW ||
+        currentPhase = phase;
+        const countsOnly = phase === PHASE.WORD_COLLECTION;
+        const textOpen = phase === PHASE.WORD_REVIEW ||
           phase === PHASE.HAT_LOCKED ||
           phase === PHASE.ROUND_1_READY ||
           phase === PHASE.ROUND_1_ACTIVE ||
           phase === PHASE.ROUND_1_TURN_VALIDATION ||
           phase === PHASE.ROUND_1_FINISHED;
+        const open = countsOnly || textOpen;
         if (open && !wordsUnsub) {
           wordsUnsub = this._wordsRef(gameId).onSnapshot(
-            ws => cb(ws.docs.map(d => Object.assign({ id: d.id }, d.data()))),
+            ws => {
+              const strip = currentPhase === PHASE.WORD_COLLECTION;
+              cb(ws.docs.map(d => {
+                const data = Object.assign({ id: d.id }, d.data());
+                if (strip) data.text = '';
+                return data;
+              }));
+            },
             err => Log.firebaseError('listenToHat words', err)
           );
         } else if (!open) {
@@ -936,20 +948,17 @@
       const players = playersSnap.docs.map(d => Object.assign({ id: d.id }, d.data()));
       const words = wordsSnap.docs.map(d => Object.assign({ id: d.id }, d.data()));
 
-      // Count owned words directly from the words collection — Firebase
-      // submitWord doesn't currently maintain player.wordCount, so the
-      // word collection is the source of truth here.
-      const wpp = game.wordsPerPlayer | 0;
-      const ownedCount = {};
-      words.forEach(w => {
-        const uid = w.ownerUid;
-        if (!uid) return;
-        ownedCount[uid] = (ownedCount[uid] || 0) + 1;
-      });
-      const allDone = players.length > 0 &&
-        players.every(p => (ownedCount[p.uid] || 0) === wpp);
-      if (!allDone) {
-        throw new GameError('Cannot start review yet. Some players are missing words.');
+      // Canonical helper — same one the admin UI uses. Source of truth
+      // is the word docs (filtered by status !== 'removed'), so the
+      // gate cannot disagree with the visible progress.
+      const r = U.getWordSubmissionReadiness(
+        { wordsPerPlayer: game.wordsPerPlayer }, players, words
+      );
+      if (!r.canReview) {
+        const haveMissing = r.missingPlayers.length > 0;
+        throw new GameError(haveMissing
+          ? 'Cannot start review. ' + r.reasons.filter(s => s.indexOf('Missing words:') === 0)[0]
+          : 'Word review validation mismatch. Please refresh or run repair.');
       }
 
       const now = U.nowIso();
@@ -1020,6 +1029,44 @@
         createdAt: this._serverTimestamp(),
       });
       await batch.commit();
+    }
+
+    // Admin-only repair tool. Recomputes player.wordCount from the
+    // actual words collection so a drifted cache is fixed without
+    // having to reopen / re-submit. Useful both manually (debug
+    // panel) and as a safety net before borderline transitions.
+    async repairPlayerWordCounts(gameId) {
+      await this._requireSignedIn();
+      const game = await this._loadGameOrThrow(gameId);
+      if (game.adminUid !== this._uid) {
+        throw new GameError('Only the host can do that.');
+      }
+      const [playersSnap, wordsSnap] = await Promise.all([
+        this._playersRef(gameId).get(),
+        this._wordsRef(gameId).get(),
+      ]);
+      const ownedCount = {};
+      wordsSnap.docs.forEach(d => {
+        const w = d.data() || {};
+        if (w.status === 'removed') return;
+        if (w.ownerUid)      ownedCount[w.ownerUid]     = (ownedCount[w.ownerUid] || 0) + 1;
+        if (w.ownerPlayerId && w.ownerPlayerId !== w.ownerUid) {
+          ownedCount[w.ownerPlayerId] = (ownedCount[w.ownerPlayerId] || 0) + 1;
+        }
+      });
+      const now = U.nowIso();
+      const batch = this._db.batch();
+      let repaired = 0;
+      playersSnap.docs.forEach(d => {
+        const player = d.data() || {};
+        const expected = ownedCount[d.id] || 0;
+        if ((player.wordCount | 0) !== expected) {
+          batch.update(d.ref, { wordCount: expected, updatedAt: now });
+          repaired++;
+        }
+      });
+      if (repaired > 0) await batch.commit();
+      return { repaired: repaired };
     }
 
     // WORD_REVIEW → HAT_LOCKED. Only approved words enter the locked
