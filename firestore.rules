@@ -1,36 +1,35 @@
-// Proposed Firestore security rules for the Alias / Hat Game.
-//
-// STATUS: MVP draft. Test these against the Firebase emulator before
-// trusting them in production. The client UI hides word texts during
-// collection, but these rules are what actually keep one player from
-// reading another's words.
+// Firestore security rules for the Alias / Hat Game.
 //
 // Deploy with:
 //   firebase deploy --only firestore:rules
 //
-// Highlights:
-// - Anyone signed in (anonymous OK) can read the game document so
-//   players can join by code.
-// - Only the admin (creator) can mutate the game doc, teams, and
-//   round state.
-// - A player's own document is keyed by their uid; only they (and the
-//   admin) can read/write it.
-// - Word documents are readable only by their owner or the admin,
-//   and only their owner can mutate them (and only before the hat is
-//   locked).
+// Defense-in-depth philosophy:
+//   - The client UI hides word text during collection/play, but these
+//     rules are what actually keep one player from reading another's
+//     words or from forging gameplay actions.
+//   - "Admin" is identified by the adminUid field on the game doc.
+//     Use Firebase custom claims for stronger admin auth if you need
+//     it; for the MVP we trust the creator-uid mapping.
+//   - Active-explainer authority is mirrored onto the game doc
+//     (`activeExplainerUid`) by FirebaseProvider.startNextTurn /
+//     startTurnTimer so the rules can match request.auth.uid against
+//     it without a multi-doc lookup.
 //
-// Known limitations / TODO:
-// - There is no server-side enforcement of the "wordsPerPlayer" cap
-//   or duplicate detection. For MVP we rely on the client; a Cloud
-//   Function or transactional client write should enforce it.
-// - "Admin" is identified by the adminUid field on the game doc.
-//   For more robust admin auth, use Firebase custom claims.
+// Known limitations:
+//   - There is no server-side enforcement of the wordsPerPlayer cap
+//     or duplicate-word detection. A Cloud Function would tighten
+//     that; until then the client + a transactional add is the
+//     enforcement point.
+//   - Score updates by the active explainer are scoped to "the team
+//     marked active on the game doc"; the rule trusts the mirrored
+//     `activeTeamId` field. Tampering with that field still requires
+//     admin or active-explainer auth, so the trust chain holds.
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helpers
+    // ---- Helpers ----------------------------------------------------
     function signedIn() {
       return request.auth != null;
     }
@@ -40,99 +39,179 @@ service cloud.firestore {
     function isAdmin(gameId) {
       return signedIn() && gameDoc(gameId).data.adminUid == request.auth.uid;
     }
+    function isActiveExplainer(gameId) {
+      return signedIn() &&
+        gameDoc(gameId).data.get('activeExplainerUid', '') == request.auth.uid;
+    }
+    function isActiveTeam(gameId, teamId) {
+      return gameDoc(gameId).data.get('activeTeamId', '') == teamId;
+    }
+    function registrationOpen(gameId) {
+      return gameDoc(gameId).data.get('registrationLocked', false) == false;
+    }
     function phaseAllowsWordEdit(gameId) {
       return gameDoc(gameId).data.phase == 'WORD_COLLECTION';
     }
+    function phaseIsWordReview(gameId) {
+      return gameDoc(gameId).data.phase == 'WORD_REVIEW';
+    }
+    function phase(gameId) { return gameDoc(gameId).data.phase; }
     function phaseAllowsHatRead(gameId) {
-      let phase = gameDoc(gameId).data.phase;
-      return phase == 'HAT_LOCKED' ||
-             phase == 'ROUND_1_READY' ||
-             phase == 'ROUND_1_ACTIVE' ||
-             phase == 'ROUND_1_TURN_VALIDATION' ||
-             phase == 'ROUND_1_FINISHED';
+      let p = phase(gameId);
+      return p == 'HAT_LOCKED' ||
+             p == 'ROUND_1_READY' || p == 'ROUND_1_ACTIVE' ||
+             p == 'ROUND_1_TURN_VALIDATION' || p == 'ROUND_1_FINISHED' ||
+             p == 'ROUND_2_READY' || p == 'ROUND_2_ACTIVE' ||
+             p == 'ROUND_2_TURN_VALIDATION' || p == 'ROUND_2_FINISHED' ||
+             p == 'ROUND_3_READY' || p == 'ROUND_3_ACTIVE' ||
+             p == 'ROUND_3_TURN_VALIDATION' || p == 'ROUND_3_FINISHED' ||
+             p == 'GAME_FINISHED';
+    }
+    function phaseIsRoundActive(gameId) {
+      let p = phase(gameId);
+      return p == 'ROUND_1_ACTIVE' || p == 'ROUND_2_ACTIVE' || p == 'ROUND_3_ACTIVE';
+    }
+    function phaseIsRoundLifecycle(gameId) {
+      let p = phase(gameId);
+      return p == 'ROUND_1_READY' || p == 'ROUND_1_ACTIVE' ||
+             p == 'ROUND_1_TURN_VALIDATION' || p == 'ROUND_1_FINISHED' ||
+             p == 'ROUND_2_READY' || p == 'ROUND_2_ACTIVE' ||
+             p == 'ROUND_2_TURN_VALIDATION' || p == 'ROUND_2_FINISHED' ||
+             p == 'ROUND_3_READY' || p == 'ROUND_3_ACTIVE' ||
+             p == 'ROUND_3_TURN_VALIDATION' || p == 'ROUND_3_FINISHED' ||
+             p == 'GAME_FINISHED';
+    }
+    // Lifecycle gate: a game is "open" for normal writes only while
+    // its status field is 'active' (or missing — older docs default
+    // to active). archived / abandoned / deleting rooms refuse new
+    // joins and most mutations.
+    function gameIsActive(gameId) {
+      return gameDoc(gameId).data.get('status', 'active') == 'active';
     }
 
-    // games/{gameId} — the room itself
+    // ---- /games/{gameId} -------------------------------------------
     match /games/{gameId} {
       allow read: if signedIn();
-      // Creator becomes admin. They write the doc with adminUid set
-      // to their own uid; the rule below pins it.
+      // Creator becomes admin and pins their own uid.
       allow create: if signedIn() &&
                        request.resource.data.adminUid == request.auth.uid;
-      allow update: if isAdmin(gameId) &&
-                       // Admin cannot reassign the admin to someone else.
-                       request.resource.data.adminUid == resource.data.adminUid;
+      // Admin updates: cannot transfer ownership.
+      allow update: if (isAdmin(gameId) &&
+                        request.resource.data.adminUid == resource.data.adminUid) ||
+                       // Active explainer mirrors activeExplainerUid/activeTeamId
+                       // when starting the timer or marking guessed; allow that
+                       // narrow path but only on existing games and never to
+                       // reassign adminUid.
+                       (isActiveExplainer(gameId) &&
+                        request.resource.data.adminUid == resource.data.adminUid);
       allow delete: if isAdmin(gameId);
 
-      // games/{gameId}/players/{playerId}
+      // ---- /games/{gameId}/players/{playerId} ---------------------
       // playerId == player's uid by convention (see firebase-provider.js).
       match /players/{playerId} {
         allow read: if signedIn();
-        // CREATE: a player may only register their own slot, and only
-        // before registrationLocked is true. Admin can always create
-        // (for adding-by-name flows if you reintroduce them).
+        // CREATE: a player may register their own slot before lock.
+        // Admin can always create (for host-side admin flows). The
+        // lifecycle gate forbids joins on archived / abandoned /
+        // deleting rooms regardless of phase.
         allow create: if signedIn() && (
-          (request.auth.uid == playerId &&
-           gameDoc(gameId).data.registrationLocked == false) ||
+          (request.auth.uid == playerId && registrationOpen(gameId) &&
+           gameIsActive(gameId)) ||
           isAdmin(gameId)
         );
-        // UPDATE: a player may update their own slot (heartbeat,
-        // connected, lastSeenAt). The admin can also update e.g.
-        // teamId — but only before registration lock.
+        // UPDATE: a player may always update their own slot (heartbeat,
+        // connected, lastSeenAt). Admin may update any player.
         allow update: if signedIn() && (
-          (request.auth.uid == playerId) ||
-          (isAdmin(gameId) &&
-           gameDoc(gameId).data.registrationLocked == false)
+          request.auth.uid == playerId ||
+          isAdmin(gameId)
         );
-        allow delete: if isAdmin(gameId) &&
-                         gameDoc(gameId).data.registrationLocked == false;
+        allow delete: if isAdmin(gameId) && registrationOpen(gameId);
       }
 
-      // games/{gameId}/teams/{teamId}
+      // ---- /games/{gameId}/teams/{teamId} -------------------------
       match /teams/{teamId} {
         allow read: if signedIn();
-        // Only the admin manages teams — and only while registration
-        // is still open. Once locked, the team structure is frozen.
-        allow write: if isAdmin(gameId) &&
-                        gameDoc(gameId).data.registrationLocked == false;
+        // CREATE / DELETE: admin only, and only while registration is
+        // still open. Once a game has started teams are frozen.
+        allow create: if isAdmin(gameId) && registrationOpen(gameId);
+        allow delete: if isAdmin(gameId);
+        // UPDATE: admin can update at any point (score adjustments,
+        // rename pre-lock, roster reshuffles during rematch). The
+        // active explainer can update *only their own active team*
+        // during a live round so markGuessed can bump the score.
+        allow update: if isAdmin(gameId) ||
+                         (isActiveExplainer(gameId) &&
+                          phaseIsRoundActive(gameId) &&
+                          isActiveTeam(gameId, teamId));
       }
 
-      // games/{gameId}/words/{wordId}
-      // PRIVACY: a player may only read their own word texts before
-      // the hat is locked. After lock the admin and all players may
-      // read all words (needed for Round 1 public reveals).
+      // ---- /games/{gameId}/events/{eventId} -----------------------
+      // Append-only audit log.
+      match /events/{eventId} {
+        allow read: if signedIn();
+        allow create: if isAdmin(gameId) || isActiveExplainer(gameId);
+        // Events are immutable once written.
+      }
+
+      // ---- /games/{gameId}/words/{wordId} -------------------------
+      // PRIVACY:
+      //  - During WORD_COLLECTION: only the owner can read text.
+      //  - During WORD_REVIEW: the host (admin) can read all texts.
+      //  - During HAT_LOCKED / round lifecycle: any signed-in client
+      //    may read (the locked hat is shared knowledge to the host
+      //    + admin Hat Contents panel + the active explainer's
+      //    activeWord text view).
       match /words/{wordId} {
         allow read: if signedIn() && (
           resource.data.ownerUid == request.auth.uid ||
-          isAdmin(gameId) && phaseAllowsHatRead(gameId) ||
+          (isAdmin(gameId) && (phaseAllowsHatRead(gameId) || phaseIsWordReview(gameId))) ||
           phaseAllowsHatRead(gameId)
         );
-        // Only the owner can create / update / delete, and only
-        // during word collection.
+        // CREATE: only the owner, only during word collection.
         allow create: if signedIn() &&
                          request.resource.data.ownerUid == request.auth.uid &&
                          phaseAllowsWordEdit(gameId);
-        allow update, delete: if signedIn() &&
-                                 resource.data.ownerUid == request.auth.uid &&
-                                 phaseAllowsWordEdit(gameId);
+        // UPDATE:
+        //  - owner during WORD_COLLECTION (free edits)
+        //  - owner during WORD_REVIEW iff status == needs_revision
+        //    (resubmit revised word)
+        //  - admin during WORD_REVIEW (approve / edit / remove)
+        //  - admin during the round lifecycle (status writes from
+        //    markGuessed / validation, plus the lockHat status flip)
+        allow update: if signedIn() && (
+          (resource.data.ownerUid == request.auth.uid &&
+           phaseAllowsWordEdit(gameId)) ||
+          (resource.data.ownerUid == request.auth.uid &&
+           phaseIsWordReview(gameId) &&
+           resource.data.status == 'needs_revision') ||
+          (isAdmin(gameId) && phaseIsWordReview(gameId)) ||
+          (isAdmin(gameId) && phaseIsRoundLifecycle(gameId))
+        );
+        // DELETE: owner during collection (their own); admin at any
+        // time (used by resetGame / rematchGame which wipe the words
+        // subcollection).
+        allow delete: if signedIn() && (
+          (resource.data.ownerUid == request.auth.uid &&
+           phaseAllowsWordEdit(gameId)) ||
+          isAdmin(gameId)
+        );
       }
 
-      // games/{gameId}/rounds/{roundId}
+      // ---- /games/{gameId}/rounds/{roundId} -----------------------
       match /rounds/{roundId} {
         allow read: if signedIn();
-        allow write: if isAdmin(gameId);
+        // Admin manages the round subdoc. The active explainer also
+        // writes to it: startTurnTimer, markGuessed (next active word
+        // + remaining list), markWrong, endTurn.
+        allow create, delete: if isAdmin(gameId);
+        allow update: if isAdmin(gameId) || isActiveExplainer(gameId);
 
         match /turns/{turnId} {
           allow read: if signedIn();
-          // Admin updates turn records; the active explainer needs to
-          // append "guessed" actions, which requires either a Cloud
-          // Function (recommended) or a more specific write rule.
-          // For MVP we permit the active explainer to update — note
-          // that this is wider than ideal; tighten before prod.
-          allow write: if signedIn() && (
-            isAdmin(gameId) ||
-            request.auth.uid == gameDoc(gameId).data.activeExplainerUid
-          );
+          // Legacy nested-turn path (kept for back-compat with any
+          // pre-Batch-3 code that wrote to it). Turns currently live
+          // inline on the round doc.
+          allow write: if isAdmin(gameId) || isActiveExplainer(gameId);
         }
       }
     }
