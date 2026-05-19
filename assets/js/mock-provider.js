@@ -37,6 +37,8 @@
   const UID_KEY = 'hat_mock_uid';
   const ADMIN_GAMES_KEY = 'hat_mock_admin_games'; // {gameId: true}
 
+  function noop() {}
+
   function storageKey(gameId) { return STORAGE_PREFIX + gameId; }
 
   function loadGame(gameId) {
@@ -796,6 +798,18 @@
       doc.words.forEach(w => {
         if (!w.status || w.status === 'active') w.status = 'submitted';
       });
+      // Auto-repair drifted player.wordCount before flipping the phase
+      // so the post-review UI shows accurate totals even after a prior
+      // bug or race left a stale cache.
+      const counts = {};
+      (doc.words || []).forEach(w => {
+        if (!w || w.status === 'removed') return;
+        if (w.ownerUid) counts[w.ownerUid] = (counts[w.ownerUid] || 0) + 1;
+      });
+      (doc.players || []).forEach(p => {
+        const expected = counts[p.uid] || 0;
+        if ((p.wordCount | 0) !== expected) p.wordCount = expected;
+      });
       doc.phase = PHASE.WORD_REVIEW;
       logEvent(doc, 'word_review_started', this._uid);
       saveGame(gameId, doc);
@@ -1180,66 +1194,110 @@
       return me;
     }
 
+    // Per-uid mutex mirroring the FirebaseProvider one. Mock mode is
+    // single-threaded so localStorage writes never interleave, but
+    // Promise.allSettled of N submits would otherwise all race through
+    // the async function body together; the mutex makes the regression
+    // tests exercise the same serialized behavior as production.
+    _withSubmitLock(uid, fn) {
+      if (!this._submitLocks) this._submitLocks = {};
+      const prev = this._submitLocks[uid] || Promise.resolve();
+      const next = prev.then(fn, fn);
+      this._submitLocks[uid] = next.then(noop, noop);
+      return next;
+    }
+
     async submitWord(gameId, text) {
-      const doc = this._requireGame(gameId);
-      this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
-      const me = this._requireMyPlayer(doc);
       const clean = U.validateWordText(text);
-      const myWords = doc.words.filter(w => w.ownerUid === this._uid);
-      if (myWords.length >= doc.wordsPerPlayer) {
-        throw new GameError('You cannot submit more than ' + doc.wordsPerPlayer + ' words.');
-      }
-      if (myWords.some(w => w.text.toLowerCase() === clean.toLowerCase())) {
-        throw new GameError('You already submitted that word.');
-      }
-      const word = {
-        id: U.newId(),
-        text: clean,
-        ownerUid: this._uid,
-        ownerPlayerId: me.id,
-        ownerName: me.name,
-        createdAt: U.nowIso(),
-        updatedAt: U.nowIso(),
-        status: 'active',
-      };
-      doc.words.push(word);
-      me.wordCount = doc.words.filter(w => w.ownerUid === this._uid).length;
-      saveGame(gameId, doc);
+      const normalized = U.normalizeWordForCompare(clean);
+      const uid = this._uid;
+      return this._withSubmitLock(uid, () => {
+        const doc = this._requireGame(gameId);
+        this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
+        if (doc.registrationLocked !== true) {
+          throw new GameError('Word collection has not started yet.');
+        }
+        const me = this._requireMyPlayer(doc);
+        // Canonical count comes from the actual word docs, not the
+        // cached player.wordCount. The mutex makes this fresh w.r.t.
+        // our own writes.
+        const myWords = (doc.words || []).filter(w =>
+          w.ownerUid === uid && w.status !== 'removed'
+        );
+        if (myWords.length >= doc.wordsPerPlayer) {
+          throw new GameError('You already submitted all required words.');
+        }
+        if (myWords.some(w => U.normalizeWordForCompare(w.text || '') === normalized)) {
+          throw new GameError('You already submitted that word.');
+        }
+        const now = U.nowIso();
+        const word = {
+          id: U.newId(),
+          text: clean,
+          ownerUid: uid,
+          ownerPlayerId: me.id,
+          ownerName: me.name || '',
+          slotIndex: myWords.length,
+          createdAt: now,
+          updatedAt: now,
+          status: 'active',
+        };
+        doc.words.push(word);
+        me.wordCount = (doc.words || []).filter(w =>
+          w.ownerUid === uid && w.status !== 'removed'
+        ).length;
+        logEvent(doc, 'word_submitted', uid, { wordId: word.id });
+        saveGame(gameId, doc);
+      });
     }
 
     async updateWord(gameId, wordId, text) {
-      const doc = this._requireGame(gameId);
-      this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
-      const me = this._requireMyPlayer(doc);
-      const word = doc.words.find(w => w.id === wordId);
-      if (!word) throw new GameError('Word not found.');
-      if (word.ownerUid !== this._uid) {
-        throw new GameError('You can only edit your own words.');
-      }
       const clean = U.validateWordText(text);
-      if (doc.words.some(w =>
-        w.ownerUid === this._uid && w.id !== wordId &&
-        w.text.toLowerCase() === clean.toLowerCase()
-      )) {
-        throw new GameError('You already have a word with that text.');
-      }
-      word.text = clean;
-      word.updatedAt = U.nowIso();
-      saveGame(gameId, doc);
+      const normalized = U.normalizeWordForCompare(clean);
+      const uid = this._uid;
+      return this._withSubmitLock(uid, () => {
+        const doc = this._requireGame(gameId);
+        this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
+        this._requireMyPlayer(doc);
+        const word = (doc.words || []).find(w => w.id === wordId);
+        if (!word) throw new GameError('Word not found.');
+        if (word.ownerUid !== uid) {
+          throw new GameError('You can only edit your own words.');
+        }
+        const dupe = (doc.words || []).some(w =>
+          w.ownerUid === uid && w.id !== wordId &&
+          w.status !== 'removed' &&
+          U.normalizeWordForCompare(w.text || '') === normalized
+        );
+        if (dupe) {
+          throw new GameError('You already have a word with that text.');
+        }
+        word.text = clean;
+        word.updatedAt = U.nowIso();
+        saveGame(gameId, doc);
+      });
     }
 
     async deleteWord(gameId, wordId) {
-      const doc = this._requireGame(gameId);
-      this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
-      const me = this._requireMyPlayer(doc);
-      const idx = doc.words.findIndex(w => w.id === wordId);
-      if (idx === -1) throw new GameError('Word not found.');
-      if (doc.words[idx].ownerUid !== this._uid) {
-        throw new GameError('You can only delete your own words.');
-      }
-      doc.words.splice(idx, 1);
-      me.wordCount = doc.words.filter(w => w.ownerUid === this._uid).length;
-      saveGame(gameId, doc);
+      const uid = this._uid;
+      return this._withSubmitLock(uid, () => {
+        const doc = this._requireGame(gameId);
+        this._requirePhase(doc, [PHASE.WORD_COLLECTION]);
+        const me = this._requireMyPlayer(doc);
+        const idx = (doc.words || []).findIndex(w => w.id === wordId);
+        if (idx === -1) throw new GameError('Word not found.');
+        if (doc.words[idx].ownerUid !== uid) {
+          throw new GameError('You can only delete your own words.');
+        }
+        doc.words.splice(idx, 1);
+        // Recompute from actual docs so the cache cannot drift even
+        // under concurrent mutations; floor at 0 belt-and-braces.
+        me.wordCount = Math.max(0, (doc.words || []).filter(w =>
+          w.ownerUid === uid && w.status !== 'removed'
+        ).length);
+        logEvent(doc, 'word_deleted', uid, { wordId: wordId });
+        saveGame(gameId, doc);
+      });
     }
 
     // -- Round subdoc listener -------------------------------------

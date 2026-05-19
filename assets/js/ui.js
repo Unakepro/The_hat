@@ -1221,7 +1221,7 @@
       const atCap = myWords.length >= required;
       wordInput.disabled = atCap;
       if (submitBtn) submitBtn.disabled = atCap;
-      wordInput.placeholder = atCap ? 'All ' + required + ' words submitted' : 'Type a word…';
+      wordInput.placeholder = atCap ? 'You submitted all your words.' : 'Type a word…';
 
       const list = $('my-word-list');
       clear(list);

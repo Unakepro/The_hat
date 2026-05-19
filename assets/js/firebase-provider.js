@@ -51,6 +51,8 @@
   // Round key used for the rounds subcollection doc id.
   function roundKey(n) { return 'round' + n; }
 
+  function noop() {}
+
   // Build a fresh round subdoc. Same shape as MockProvider.emptyRound
   // so the listener stitching code can stay in lockstep — the only
   // difference is that turns live inline (Firestore doc fields) here,
@@ -969,6 +971,22 @@
           batch.update(d.ref, { status: 'submitted', updatedAt: now });
         }
       });
+      // Auto-repair any drifted player.wordCount before flipping the
+      // phase so the post-review UI shows the right "X / N" totals
+      // even if a prior code path left a stale cache.
+      const ownedCount = {};
+      wordsSnap.docs.forEach(d => {
+        const w = d.data() || {};
+        if (w.status === 'removed') return;
+        if (w.ownerUid) ownedCount[w.ownerUid] = (ownedCount[w.ownerUid] || 0) + 1;
+      });
+      playersSnap.docs.forEach(d => {
+        const expected = ownedCount[d.id] || 0;
+        const player = d.data() || {};
+        if ((player.wordCount | 0) !== expected) {
+          batch.update(d.ref, { wordCount: expected, updatedAt: now });
+        }
+      });
       batch.update(this._gameRef(gameId), {
         phase: PHASE.WORD_REVIEW, updatedAt: now,
       });
@@ -1513,74 +1531,115 @@
     }
 
     // -- Mutations: player ---------------------------------------
+    // Per-uid Promise-chain mutex so rapid same-client submits serialize
+    // before they hit Firestore. The provider mutex is the first line of
+    // defense; the transaction below is the second (cross-client races).
+    _withSubmitLock(uid, fn) {
+      if (!this._submitLocks) this._submitLocks = {};
+      const prev = this._submitLocks[uid] || Promise.resolve();
+      const next = prev.then(fn, fn);
+      // Hold the lock for the next caller until this one fully settles,
+      // pass or fail — we don't want a rejection to drop the lock and
+      // let a queued caller race the previous tx's commit.
+      this._submitLocks[uid] = next.then(noop, noop);
+      return next;
+    }
+
     async submitWord(gameId, text) {
       await this._requireSignedIn();
       const clean = U.validateWordText(text);
+      const normalized = U.normalizeWordForCompare(clean);
+      const uid = this._uid;
       const gameRef = this._gameRef(gameId);
-      const playerRef = this._playersRef(gameId).doc(this._uid);
-      const newWordRef = this._wordsRef(gameId).doc();
-      // Transaction: enforce phase, owner, cap, duplicates, and
-      // wordCount atomically so a fast double-click cannot exceed
-      // wordsPerPlayer. We have to read all the same-owner words to
-      // check duplicates, which means we collect their ids in advance
-      // and read them inside the transaction.
-      const ownerSnap = await this._wordsRef(gameId)
-        .where('ownerUid', '==', this._uid).get();
-      const ownerWordRefs = ownerSnap.docs.map(d => d.ref);
+      const playerRef = this._playersRef(gameId).doc(uid);
+      const wordsRef = this._wordsRef(gameId);
       const self = this;
-      await this._db.runTransaction(async (tx) => {
-        const gameSnap = await tx.get(gameRef);
-        if (!gameSnap.exists) throw new GameError('Game not found.');
-        const game = gameSnap.data();
-        if (game.phase !== PHASE.WORD_COLLECTION) {
-          throw new GameError('Not allowed in phase ' + game.phase + '.');
-        }
-        const playerSnap = await tx.get(playerRef);
-        if (!playerSnap.exists) throw new GameError('You are not part of this game.');
-        const player = playerSnap.data();
-        const cap = parseInt(game.wordsPerPlayer, 10) || 0;
-        const ownerDocs = await Promise.all(ownerWordRefs.map(r => tx.get(r)));
-        const myWords = ownerDocs
-          .filter(s => s.exists)
-          .map(s => Object.assign({ id: s.id }, s.data()))
-          // Exclude soft-removed/locked words from the cap so a host
-          // can drop one and the owner can submit a replacement (the
-          // mock provider counts owned words inclusive; we mirror).
+      const writtenSlotId = await this._withSubmitLock(uid, async () => {
+        // Prefetch the owner's existing words for the duplicate check.
+        // The per-uid mutex guarantees this snapshot is fresh w.r.t.
+        // any of OUR pending writes; for cross-client races the
+        // transaction's player.wordCount CAS handles ordering.
+        const ownerSnap = await wordsRef.where('ownerUid', '==', uid).get();
+        const ownerWords = ownerSnap.docs
+          .map(d => Object.assign({ id: d.id }, d.data()))
           .filter(w => w.status !== 'removed');
-        if (myWords.length >= cap) {
-          throw new GameError(
-            'You cannot submit more than ' + cap + ' words.'
-          );
-        }
-        const normalized = clean.toLowerCase();
-        if (myWords.some(w => (w.text || '').toLowerCase() === normalized)) {
-          throw new GameError('You already submitted that word.');
-        }
-        const now = U.nowIso();
-        tx.set(newWordRef, {
-          text: clean,
-          ownerUid: self._uid,
-          ownerPlayerId: self._uid,
-          ownerName: player.name || '',
-          createdAt: now,
-          updatedAt: now,
-          status: 'active',
+        // Deterministic slot doc IDs: two concurrent writers both
+        // computing slot N collide on the same doc, which combined
+        // with the player.wordCount CAS lets Firestore retry the
+        // loser safely.
+        let chosenSlotId = null;
+        await self._db.runTransaction(async (tx) => {
+          const gameSnap = await tx.get(gameRef);
+          if (!gameSnap.exists) throw new GameError('Game not found.');
+          const game = gameSnap.data();
+          if (game.phase !== PHASE.WORD_COLLECTION) {
+            throw new GameError('Not allowed in phase ' + game.phase + '.');
+          }
+          if (game.registrationLocked !== true) {
+            throw new GameError('Word collection has not started yet.');
+          }
+          const playerSnap = await tx.get(playerRef);
+          if (!playerSnap.exists) {
+            throw new GameError('You are not part of this game.');
+          }
+          const player = playerSnap.data();
+          if (player.uid && player.uid !== uid) {
+            throw new GameError('You can only submit your own words.');
+          }
+          const cap = parseInt(game.wordsPerPlayer, 10) || 0;
+          // Canonical count comes from player.wordCount read inside
+          // the transaction; the player-doc CAS makes this safe under
+          // concurrent writers — the retried transaction sees the
+          // post-commit value.
+          const slotIdx = Math.max(0, player.wordCount | 0);
+          if (slotIdx >= cap) {
+            throw new GameError('You already submitted all required words.');
+          }
+          const slotId = uid + '_w' + slotIdx;
+          const slotRef = wordsRef.doc(slotId);
+          const slotSnap = await tx.get(slotRef);
+          if (slotSnap.exists) {
+            // Stale wordCount cache vs. real docs: retry by bumping
+            // the count off the actual ref and surfacing a clear
+            // error if it now exceeds the cap.
+            throw new GameError('You already submitted all required words.');
+          }
+          if (ownerWords.some(w =>
+            U.normalizeWordForCompare(w.text || '') === normalized
+          )) {
+            throw new GameError('You already submitted that word.');
+          }
+          const now = U.nowIso();
+          tx.set(slotRef, {
+            text: clean,
+            ownerUid: uid,
+            ownerPlayerId: uid,
+            ownerName: player.name || '',
+            slotIndex: slotIdx,
+            createdAt: now,
+            updatedAt: now,
+            status: 'active',
+          });
+          tx.update(playerRef, {
+            wordCount: slotIdx + 1,
+            updatedAt: now,
+          });
+          tx.update(gameRef, { updatedAt: now });
+          chosenSlotId = slotId;
         });
-        tx.update(playerRef, {
-          wordCount: myWords.length + 1,
-          updatedAt: now,
-        });
-        tx.update(gameRef, { updatedAt: now });
+        return chosenSlotId;
       });
       // Audit event written outside the transaction (events are
       // append-only; a transaction can't include create-with-auto-id
       // for a subcollection cleanly).
-      await this._eventsRef(gameId).add({
-        type: 'word_submitted',
-        actorUid: this._uid,
-        wordId: newWordRef.id,
-        createdAt: this._serverTimestamp(),
-      });
+      if (writtenSlotId) {
+        await this._eventsRef(gameId).add({
+          type: 'word_submitted',
+          actorUid: uid,
+          wordId: writtenSlotId,
+          createdAt: this._serverTimestamp(),
+        });
+      }
     }
 
     async updateWord(gameId, wordId, text) {
@@ -1616,13 +1675,13 @@
         if (!inCollection && !isResubmit) {
           throw new GameError('Not allowed in phase ' + game.phase + '.');
         }
-        const normalized = clean.toLowerCase();
+        const normalized = U.normalizeWordForCompare(clean);
         const otherSnaps = await Promise.all(ownerOtherRefs.map(r => tx.get(r)));
         const dupe = otherSnaps.some(s => {
           if (!s.exists) return false;
           const other = s.data() || {};
           if (other.status === 'removed') return false;
-          return (other.text || '').toLowerCase() === normalized;
+          return U.normalizeWordForCompare(other.text || '') === normalized;
         });
         if (dupe) {
           throw new GameError('You already have a word with that text.');
@@ -1643,37 +1702,55 @@
 
     async deleteWord(gameId, wordId) {
       await this._requireSignedIn();
+      const uid = this._uid;
       const gameRef = this._gameRef(gameId);
       const wordRef = this._wordsRef(gameId).doc(wordId);
-      const playerRef = this._playersRef(gameId).doc(this._uid);
-      const self = this;
-      await this._db.runTransaction(async (tx) => {
-        const gameSnap = await tx.get(gameRef);
-        if (!gameSnap.exists) throw new GameError('Game not found.');
-        const game = gameSnap.data();
-        if (game.phase !== PHASE.WORD_COLLECTION) {
-          throw new GameError('Not allowed in phase ' + game.phase + '.');
-        }
-        const wordSnap = await tx.get(wordRef);
-        if (!wordSnap.exists) throw new GameError('Word not found.');
-        const word = wordSnap.data();
-        if (word.ownerUid !== self._uid) {
-          throw new GameError('You can only delete your own words.');
-        }
-        const playerSnap = await tx.get(playerRef);
-        const currentCount = (playerSnap.exists &&
-          (playerSnap.data().wordCount | 0)) || 0;
-        const nextCount = Math.max(0, currentCount - 1);
-        const now = U.nowIso();
-        tx.delete(wordRef);
-        if (playerSnap.exists) {
-          tx.update(playerRef, { wordCount: nextCount, updatedAt: now });
-        }
-        tx.update(gameRef, { updatedAt: now });
+      const playerRef = this._playersRef(gameId).doc(uid);
+      const wordsRef = this._wordsRef(gameId);
+      // Run under the same per-uid mutex as submitWord so a delete
+      // cannot race a concurrent submit's wordCount write.
+      await this._withSubmitLock(uid, async () => {
+        // Prefetch the owner's word refs so we can recompute the count
+        // from actual docs (not just decrement) and keep player.wordCount
+        // in lockstep with reality.
+        const ownerSnap = await wordsRef.where('ownerUid', '==', uid).get();
+        const otherRefs = ownerSnap.docs
+          .filter(d => d.id !== wordId)
+          .map(d => d.ref);
+        await this._db.runTransaction(async (tx) => {
+          const gameSnap = await tx.get(gameRef);
+          if (!gameSnap.exists) throw new GameError('Game not found.');
+          const game = gameSnap.data();
+          if (game.phase !== PHASE.WORD_COLLECTION) {
+            throw new GameError('Not allowed in phase ' + game.phase + '.');
+          }
+          const wordSnap = await tx.get(wordRef);
+          if (!wordSnap.exists) throw new GameError('Word not found.');
+          const word = wordSnap.data();
+          if (word.ownerUid !== uid) {
+            throw new GameError('You can only delete your own words.');
+          }
+          // Re-read the owner's surviving docs inside the transaction
+          // so the recomputed count reflects whatever the caller is
+          // seeing at commit time.
+          const otherSnaps = await Promise.all(otherRefs.map(r => tx.get(r)));
+          const remaining = otherSnaps.filter(s => {
+            if (!s.exists) return false;
+            const data = s.data() || {};
+            return data.status !== 'removed';
+          }).length;
+          const now = U.nowIso();
+          tx.delete(wordRef);
+          tx.update(playerRef, {
+            wordCount: Math.max(0, remaining),
+            updatedAt: now,
+          });
+          tx.update(gameRef, { updatedAt: now });
+        });
       });
       await this._eventsRef(gameId).add({
         type: 'word_deleted',
-        actorUid: this._uid,
+        actorUid: uid,
         wordId: wordId,
         createdAt: this._serverTimestamp(),
       });

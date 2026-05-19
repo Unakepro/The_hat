@@ -295,22 +295,29 @@
   }
 
   let wired = false;
+  let submitInFlight = false;
   function wireEvents() {
     if (wired) return;
     wired = true;
 
     $('add-word-form').addEventListener('submit', (ev) => {
       ev.preventDefault();
+      // In-flight latch: pressing Enter in the input fires the form's
+      // submit event even when the submit button is disabled, so the
+      // button-level guard in mutate() isn't enough to block Enter
+      // spam. This bool gates the whole handler.
+      if (submitInFlight) return;
       const input = $('word-input');
       const text = input.value.trim();
       if (!text) {
         showToast('Word cannot be empty.', 'error');
         return;
       }
+      submitInFlight = true;
       const submitBtn = ev.target.querySelector('button[type="submit"]');
       mutate(() => provider.submitWord(gameId, text), submitBtn).then(ok => {
         if (ok) { input.value = ''; input.focus(); }
-      });
+      }).finally(() => { submitInFlight = false; });
     });
     $('btn-guessed').addEventListener('click', (ev) => {
       mutate(() => provider.markGuessed(gameId), btn(ev));
